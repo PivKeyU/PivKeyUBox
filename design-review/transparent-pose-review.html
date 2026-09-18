@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>手绘角色姿势 · 透明 PNG 审阅</title>
+  <style>
+    @font-face {
+      font-family: "Maple Mono CN";
+      src: url("../src/assets/fonts/MapleMono-NF-CN-Regular.ttf") format("truetype");
+      font-display: swap;
+    }
+
+    :root {
+      --paper: #fffaf2;
+      --paper-deep: #f8eee2;
+      --ink: #3f302d;
+      --muted: #8d7770;
+      --line: #ead9ce;
+      --coral: #e98687;
+      --custom-bg: #f8d8dc;
+      --shadow: 0 18px 48px rgba(96, 61, 47, .12);
+    }
+
+    * { box-sizing: border-box; }
+    html { min-width: 320px; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 8% 0%, #fff0c9 0, transparent 29rem),
+        radial-gradient(circle at 95% 18%, #e6f3ed 0, transparent 31rem),
+        var(--paper);
+      font-family: "Maple Mono CN", ui-monospace, monospace;
+    }
+
+    button, input { font: inherit; }
+    button { cursor: pointer; }
+    button:focus-visible, input:focus-visible { outline: 3px solid rgba(80, 112, 143, .45); outline-offset: 3px; }
+
+    .shell { width: min(1240px, 100%); margin: 0 auto; padding: 34px clamp(18px, 5vw, 72px) 64px; }
+    .top { display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; }
+    .eyebrow { margin: 0; color: var(--coral); font-size: 11px; letter-spacing: .12em; text-transform: uppercase; }
+    h1 { margin: 8px 0 0; font-size: clamp(25px, 4vw, 44px); line-height: 1.08; letter-spacing: -.07em; }
+    .intro { max-width: 740px; margin: 14px 0 0; color: var(--muted); font-size: 13px; line-height: 1.9; }
+    .status { padding: 9px 13px; border: 1px solid var(--line); border-radius: 999px; background: rgba(255, 255, 255, .65); color: var(--muted); font-size: 10px; white-space: nowrap; }
+
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 12px 16px;
+      margin-top: 28px;
+      padding: 14px 16px;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: rgba(255, 255, 255, .68);
+      box-shadow: var(--shadow);
+    }
+    .toolbar-label { color: var(--muted); font-size: 12px; }
+    .color-control { display: inline-flex; align-items: center; gap: 9px; color: var(--ink); font-size: 12px; }
+    #bg-color { width: 34px; height: 28px; padding: 2px; border: 1px solid var(--line); border-radius: 9px; background: transparent; cursor: pointer; }
+    #hex-value { min-width: 72px; color: var(--muted); font-size: 11px; }
+    .swatches { display: flex; flex-wrap: wrap; gap: 7px; }
+    .swatch { width: 26px; height: 26px; padding: 0; border: 2px solid rgba(63, 48, 45, .12); border-radius: 50%; background: var(--swatch); }
+    .swatch[aria-pressed="true"] { border-color: var(--ink); box-shadow: 0 0 0 2px var(--paper), 0 0 0 4px var(--ink); }
+
+    .preview {
+      position: relative;
+      margin-top: 22px;
+      padding: clamp(18px, 3vw, 30px);
+      border: 1px solid var(--line);
+      border-radius: 28px;
+      background: var(--custom-bg);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      isolation: isolate;
+    }
+    .preview::before, .preview::after { content: ""; position: absolute; z-index: -1; border: 2px solid rgba(255, 255, 255, .55); border-radius: 50%; transform: rotate(-7deg); pointer-events: none; }
+    .preview::before { width: 190px; height: 90px; right: -28px; top: 22px; }
+    .preview::after { width: 120px; height: 55px; left: -20px; bottom: 28px; }
+    .preview-head { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; margin-bottom: 18px; }
+    .preview-head h2 { margin: 0; font-size: 16px; letter-spacing: -.03em; }
+    .preview-head p { margin: 0; color: rgba(63, 48, 45, .66); font-size: 11px; }
+    .pose-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+    .pose-card { min-width: 0; padding: 10px; border: 1px solid rgba(63, 48, 45, .12); border-radius: 19px; background: rgba(255, 255, 255, .5); transition: transform .2s ease, box-shadow .2s ease; }
+    .pose-card:hover { transform: translateY(-3px); box-shadow: 0 12px 25px rgba(96, 61, 47, .1); }
+    .pose-art { display: grid; place-items: center; min-height: 240px; border-radius: 14px; background: var(--custom-bg); overflow: hidden; }
+    .pose-art img { display: block; width: 100%; height: 240px; object-fit: contain; }
+    .pose-meta { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; padding: 12px 4px 3px; }
+    .pose-meta strong { font-size: 13px; }
+    .pose-meta span { color: var(--muted); font-size: 10px; }
+    .pose-file { margin: 0 4px; color: var(--muted); font-size: 9px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    .notes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 18px; }
+    .note { padding: 16px; border: 1px solid var(--line); border-radius: 17px; background: rgba(255, 255, 255, .58); }
+    .note strong { display: block; margin-bottom: 7px; font-size: 12px; }
+    .note p { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.75; }
+    footer { display: flex; justify-content: space-between; gap: 20px; margin-top: 22px; color: var(--muted); font-size: 10px; }
+
+    @media (max-width: 800px) {
+      .top { display: block; }
+      .status { display: inline-block; margin-top: 14px; }
+      .pose-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .notes { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 520px) {
+      .shell { padding-top: 24px; }
+      .pose-grid { grid-template-columns: 1fr; }
+      .pose-art, .pose-art img { min-height: 280px; height: 280px; }
+      .preview-head, footer { display: block; }
+      .preview-head p, footer span + span { display: block; margin-top: 7px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header class="top">
+      <div>
+        <p class="eyebrow">transparent character set · visual review</p>
+        <h1>手绘角色姿势</h1>
+        <p class="intro">同一个吉伊系角色，拆成 6 张独立 PNG。线条保留轻微手绘抖动，角色和背景完全分离；选择下面的颜色，就能预览它放进不同分区、托盘菜单或快捷方式卡片后的效果。</p>
+      </div>
+      <span class="status">6 poses · RGBA verified</span>
+    </header>
+
+    <section class="toolbar" aria-label="背景颜色设置">
+      <span class="toolbar-label">自定义背景</span>
+      <label class="color-control" for="bg-color"><input id="bg-color" type="color" value="#f8d8dc" aria-label="选择预览背景颜色"><span id="hex-value">#F8D8DC</span></label>
+      <div class="swatches" aria-label="常用背景颜色">
+        <button class="swatch" type="button" style="--swatch:#f8d8dc" data-color="#f8d8dc" aria-label="粉雾色" aria-pressed="true"></button>
+        <button class="swatch" type="button" style="--swatch:#f5edcf" data-color="#f5edcf" aria-label="奶油色" aria-pressed="false"></button>
+        <button class="swatch" type="button" style="--swatch:#dcefe8" data-color="#dcefe8" aria-label="薄荷色" aria-pressed="false"></button>
+        <button class="swatch" type="button" style="--swatch:#dce8f7" data-color="#dce8f7" aria-label="粉蓝色" aria-pressed="false"></button>
+        <button class="swatch" type="button" style="--swatch:#eadff2" data-color="#eadff2" aria-label="薰衣草色" aria-pressed="false"></button>
+        <button class="swatch" type="button" style="--swatch:#f6d9bf" data-color="#f6d9bf" aria-label="杏子色" aria-pressed="false"></button>
+      </div>
+    </section>
+
+    <section class="preview" id="preview" aria-labelledby="preview-title">
+      <div class="preview-head">
+        <h2 id="preview-title">姿势资产预览</h2>
+        <p>背景只属于画板，不会写入 PNG 文件</p>
+      </div>
+      <div class="pose-grid">
+        <article class="pose-card"><div class="pose-art"><img src="./assets/poses/chiikawa-idle.png" alt="站立姿势"></div><div class="pose-meta"><strong>站立</strong><span>idle</span></div><p class="pose-file">chiikawa-idle.png</p></article>
+        <article class="pose-card"><div class="pose-art"><img src="./assets/poses/chiikawa-wave.png" alt="挥手姿势"></div><div class="pose-meta"><strong>挥手</strong><span>wave</span></div><p class="pose-file">chiikawa-wave.png</p></article>
+        <article class="pose-card"><div class="pose-art"><img src="./assets/poses/chiikawa-search.png" alt="搜索姿势"></div><div class="pose-meta"><strong>搜索</strong><span>search</span></div><p class="pose-file">chiikawa-search.png</p></article>
+        <article class="pose-card"><div class="pose-art"><img src="./assets/poses/chiikawa-read.png" alt="阅读姿势"></div><div class="pose-meta"><strong>阅读</strong><span>read</span></div><p class="pose-file">chiikawa-read.png</p></article>
+        <article class="pose-card"><div class="pose-art"><img src="./assets/poses/chiikawa-carry-folder.png" alt="搬文件夹姿势"></div><div class="pose-meta"><strong>搬文件夹</strong><span>carry</span></div><p class="pose-file">chiikawa-carry-folder.png</p></article>
+        <article class="pose-card"><div class="pose-art"><img src="./assets/poses/chiikawa-organize.png" alt="整理文件姿势"></div><div class="pose-meta"><strong>整理文件</strong><span>organize</span></div><p class="pose-file">chiikawa-organize.png</p></article>
+      </div>
+    </section>
+
+    <section class="notes" aria-label="审阅说明">
+      <article class="note"><strong>手绘风格</strong><p>统一使用深棕色不完全规整的线稿、奶油色角色、粉色腮红和简洁表情，缩小后仍能保持辨识度。</p></article>
+      <article class="note"><strong>透明资产</strong><p>6 个文件均已转换并验证为 RGBA；棋盘格只会在部分图片查看器里作为透明区域的显示方式出现。</p></article>
+      <article class="note"><strong>接入建议</strong><p>确认姿势后，再把 PNG 接到正式 React 图标组件、设置预览、快捷方式栏和系统托盘菜单。</p></article>
+    </section>
+
+    <footer><span>资产目录：design-review/assets/poses/</span><span>当前阶段：仅供视觉审阅，正式界面未替换</span></footer>
+  </main>
+
+  <script>
+    const root = document.documentElement;
+    const colorInput = document.querySelector('#bg-color');
+    const hexValue = document.querySelector('#hex-value');
+    const swatches = [...document.querySelectorAll('.swatch')];
+
+    function applyColor(value) {
+      root.style.setProperty('--custom-bg', value);
+      colorInput.value = value;
+      hexValue.textContent = value.toUpperCase();
+      swatches.forEach((swatch) => swatch.setAttribute('aria-pressed', swatch.dataset.color.toLowerCase() === value.toLowerCase() ? 'true' : 'false'));
+    }
+
+    colorInput.addEventListener('input', (event) => applyColor(event.target.value));
+    swatches.forEach((swatch) => swatch.addEventListener('click', () => applyColor(swatch.dataset.color)));
+  </script>
+</body>
+</html>

@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>主角图标候选 · 片刻收纳</title>
+  <style>
+    @font-face { font-family: "Maple Mono CN"; src: url("../src/assets/fonts/MapleMono-NF-CN-Regular.ttf") format("truetype"); }
+    :root { --paper: #fff9f0; --ink: #3d302c; --muted: #8d7770; --line: #ead9ce; --coral: #ef8d86; --soft: #ffe4df; --mint: #e4f3ee; --shadow: 0 18px 44px rgba(102, 65, 48, .12); }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; color: var(--ink); background: radial-gradient(circle at 10% 0%, #fff0c9, transparent 26rem), radial-gradient(circle at 90% 20%, #e5f3ee, transparent 28rem), var(--paper); font-family: "Maple Mono CN", ui-monospace, monospace; }
+    button { font: inherit; cursor: pointer; }
+    .shell { width: min(1180px, 100%); margin: 0 auto; padding: 34px clamp(18px, 5vw, 72px) 60px; }
+    .top { display: flex; justify-content: space-between; align-items: start; gap: 20px; }
+    .eyebrow { color: var(--coral); font-size: 11px; letter-spacing: .12em; text-transform: uppercase; }
+    h1 { margin: 8px 0 0; font-size: clamp(24px, 4vw, 42px); line-height: 1.08; letter-spacing: -.06em; }
+    .intro { max-width: 650px; margin-top: 12px; color: var(--muted); font-size: 13px; line-height: 1.8; }
+    .status { padding: 9px 12px; border: 1px solid var(--line); border-radius: 999px; background: rgba(255, 255, 255, .65); color: var(--muted); font-size: 10px; white-space: nowrap; }
+    .hero { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(250px, .8fr); gap: 20px; margin-top: 30px; }
+    .sheet, .decision { border: 1px solid var(--line); border-radius: 24px; background: rgba(255, 255, 255, .62); box-shadow: var(--shadow); }
+    .sheet { overflow: hidden; padding: 12px; }
+    .sheet img { display: block; width: 100%; height: auto; border-radius: 17px; }
+    .decision { padding: 22px; }
+    .decision h2 { margin: 0; font-size: 16px; }
+    .decision p { margin: 7px 0 18px; color: var(--muted); font-size: 11px; line-height: 1.7; }
+    .candidate-list { display: grid; gap: 9px; }
+    .candidate { display: grid; grid-template-columns: 66px 1fr; align-items: center; gap: 11px; width: 100%; padding: 7px; border: 1px solid var(--line); border-radius: 15px; background: #fffdf9; text-align: left; transition: border-color 180ms ease, background 180ms ease, transform 180ms ease; }
+    .candidate:hover { transform: translateY(-1px); border-color: var(--coral); }
+    .candidate.is-selected { border-color: var(--coral); background: var(--soft); box-shadow: 0 0 0 3px rgba(239, 141, 134, .14); }
+    .candidate-art { width: 58px; height: 58px; border-radius: 13px; background-image: url("./assets/character-icon-variants-actions.png"); background-repeat: no-repeat; background-size: 200% 200%; }
+    .candidate-art--folder { background-position: 0 0; }
+    .candidate-art--shortcut { background-position: 100% 0; }
+    .candidate-art--archive { background-position: 0 100%; }
+    .candidate-art--favorite { background-position: 100% 100%; }
+    .candidate strong { display: block; font-size: 11px; }
+    .candidate small { display: block; margin-top: 4px; color: var(--muted); font-size: 9px; line-height: 1.5; }
+    .approval { display: flex; align-items: start; gap: 9px; margin-top: 18px; padding: 12px; border-radius: 13px; background: var(--mint); color: #4c7165; font-size: 10px; line-height: 1.6; }
+    .approval::before { width: 8px; height: 8px; flex: none; margin-top: 4px; border-radius: 50%; background: #fffdf9; content: ""; }
+    .specs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 20px; }
+    .spec { padding: 16px; border: 1px solid var(--line); border-radius: 17px; background: rgba(255, 255, 255, .56); }
+    .spec strong { display: block; font-size: 11px; }
+    .spec p { margin-top: 6px; color: var(--muted); font-size: 10px; line-height: 1.6; }
+    .footer { display: flex; justify-content: space-between; gap: 20px; margin-top: 26px; padding-top: 16px; border-top: 1px dashed var(--line); color: var(--muted); font-size: 10px; }
+    @media (max-width: 760px) { .top { flex-direction: column; } .status { display: none; } .hero { grid-template-columns: 1fr; } .specs { grid-template-columns: 1fr; } .footer { flex-direction: column; gap: 7px; } }
+    @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header class="top">
+      <div>
+        <div class="eyebrow">Pivkey Organizer · Character Icon Review</div>
+        <h1>主角图标候选稿 · 动作修订版</h1>
+        <p class="intro">保留左侧文件夹与归档动作，只替换右侧两个动作：一个寻找文件，一个阅读文档。这样四个图标分别表达收纳、搜索、归档和阅读。</p>
+      </div>
+      <div class="status">Review only · 当前版本不会被替换</div>
+    </header>
+
+    <section class="hero">
+      <div class="sheet"><img src="./assets/character-icon-variants-actions.png" alt="四个主角图标候选：文件夹、搜索文件、归档、阅读文档"></div>
+      <aside class="decision">
+        <h2>请选择主角方向</h2>
+        <p>点击一个方案标记为当前候选。正式接入时，未选方案仍会保留在审阅目录中。</p>
+        <div class="candidate-list">
+          <button type="button" class="candidate is-selected"><span class="candidate-art candidate-art--folder" aria-hidden="true"></span><span><strong>A · 文件夹</strong><small>主图标推荐：最能表达“收纳”核心功能。</small></span></button>
+          <button type="button" class="candidate"><span class="candidate-art candidate-art--shortcut" aria-hidden="true"></span><span><strong>B · 搜索文件</strong><small>拿放大镜寻找文件，动作更有功能指向。</small></span></button>
+          <button type="button" class="candidate"><span class="candidate-art candidate-art--archive" aria-hidden="true"></span><span><strong>C · 归档</strong><small>更有整理感，适合历史与 release 分区。</small></span></button>
+          <button type="button" class="candidate"><span class="candidate-art candidate-art--favorite" aria-hidden="true"></span><span><strong>D · 阅读文档</strong><small>坐着阅读文件，适合文档和知识类入口。</small></span></button>
+        </div>
+        <div class="approval">当前左侧两格保持不动，右侧已改为“搜索”和“阅读”动作；确认后会用同一张脸扩展全部文件类型、设置分类和系统托盘动作。</div>
+      </aside>
+    </section>
+
+    <section class="specs">
+      <article class="spec"><strong>角色规范</strong><p>固定圆脸比例、耳朵位置、眼睛高度和腮红大小，避免不同图标出现“换了一个角色”。</p></article>
+      <article class="spec"><strong>缩小规范</strong><p>20px 使用脸部与语义物件轮廓；32px 以上再保留手脚与小配件细节。</p></article>
+      <article class="spec"><strong>接入范围</strong><p>应用主图标、分类图标、文件类型图标、设置导航、托盘菜单与快捷方式统一使用这套角色。</p></article>
+    </section>
+
+    <footer class="footer"><span>资产：design-review/assets/character-icon-variants-actions.png</span><span>请审阅：右侧动作 · 语义配件 · 角色一致性</span></footer>
+  </main>
+  <script>
+    const candidates = [...document.querySelectorAll('.candidate')];
+    candidates.forEach((candidate) => candidate.addEventListener('click', () => {
+      candidates.forEach((item) => item.classList.toggle('is-selected', item === candidate));
+    }));
+  </script>
+</body>
+</html>

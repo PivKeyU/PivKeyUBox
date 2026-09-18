@@ -1,0 +1,12 @@
+node_modules/
+dist/
+bin/
+.tmp/
+release/
+*.log
+*.tsbuildinfo
+vite.config.js
+vite.config.d.ts
+resources.neu
+.claude/
+.hallmark/

@@ -1,0 +1,13 @@
+export const preferencesKey = 'pivkey.preferences.v2';
+export const layoutKey = 'pivkey.zones.v6';
+export const collapsedKey = 'pivkey.collapsed.v2';
+export const sizeKey = 'pivkey.sizes.v2';
+export const pinnedKey = 'pivkey.pinned.v1';
+export const viewModeKey = 'pivkey.panel-views.v1';
+export const sortModeKey = 'pivkey.panel-sorts.v1';
+export const itemLayoutKey = 'pivkey.panel-item-layouts.v1';
+export const adaptivePresetKey = 'pivkey.adaptive-preset.v1';
+export const folderAlignmentKey = 'pivkey.folder-alignment.v1';
+export const organizationHistoryKey = 'pivkey.organization-history.v1';
+export const notesKey = 'pivkey.notes.v1';
+export const fallbackRoot = 'C:\\Users\\You\\Desktop';

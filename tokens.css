@@ -1,0 +1,46 @@
+/* Hallmark · named tokens for the settings workbench and tray command board */
+:root {
+  --color-paper: #ffffff;
+  --color-paper-2: #f8f9fa;
+  --color-paper-3: #f1f3f5;
+  --color-ink: #1c1c1e;
+  --color-ink-2: #3a3a3c;
+  --color-muted: #8e8e93;
+  --color-neutral: #636366;
+  --color-rule: rgba(0, 0, 0, .08);
+  --color-rule-strong: rgba(0, 0, 0, .14);
+  --color-accent-base: #3478f6;
+  --color-accent: var(--color-accent-base);
+  --color-accent-ink: #ffffff;
+  --color-focus-base: #3478f6;
+  --color-focus: var(--color-focus-base);
+  --color-positive: oklch(56% 0.12 150);
+  --color-negative: oklch(58% 0.16 25);
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 32px;
+  --space-8: 40px;
+
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+
+  --dur-instant: 100ms;
+  --dur-short: 160ms;
+  --dur-medium: 240ms;
+  --dur-long: 360ms;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in: cubic-bezier(0.7, 0, 0.84, 0);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+
+  --shadow-soft: 0 1px 0 oklch(98% 0.005 90 / 0.28), 0 12px 30px oklch(24% 0.025 75 / 0.08);
+  --shadow-control: 0 1px 4px oklch(20% 0.02 75 / 0.22);
+  --shadow-focus: 0 0 0 2px var(--color-focus);
+}
