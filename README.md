@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="src/assets/icons/pivkey-organizer.png" width="120" alt="PivKeyUBox Logo" />
+  <img src="docs/logo.png" width="128" alt="PivKeyUBox Logo" />
   <h1>PivKeyUBox</h1>
   <p><strong>直接长在 Windows 桌面层上的轻量收纳工作台 —— 不生硬、不臃肿、不打扰。</strong></p>
   <p>

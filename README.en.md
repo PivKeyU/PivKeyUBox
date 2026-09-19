@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="src/assets/icons/pivkey-organizer.png" width="120" alt="PivKeyUBox Logo" />
+  <img src="docs/logo.png" width="128" alt="PivKeyUBox Logo" />
   <h1>PivKeyUBox</h1>
   <p><strong>A lightweight organizer that lives directly on the Windows desktop layer — quiet, native, and never bloated.</strong></p>
   <p>
