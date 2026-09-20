@@ -86,6 +86,20 @@ describe('panel layout geometry', () => {
     expect(Math.max(...items.map((item) => item.y + item.height))).toBe(tallViewport.height - tallViewport.bottom);
     expectNoOverlap(items);
   });
+  // 窄视口兜底：右停靠预设曾把最左列算成负 x（面板被推出屏幕左缘），
+  // 现在会退回居中网格。这是 1366x768 @200% 这类小工作区的回归防护。
+  it('never places dock panels at negative x in a narrow viewport', () => {
+    const narrow = { width: 683, height: 364, margin: 24, top: 24, bottom: 24, gap: 0 };
+    const layout = createPresetLayout(ids, 'right-dock', narrow);
+    const items = rects(layout.positions, layout.sizes);
+    expect(items.length).toBe(ids.length);
+    items.forEach((item) => {
+      expect(item.x).toBeGreaterThanOrEqual(narrow.margin);
+      expect(item.x + item.width).toBeLessThanOrEqual(narrow.width - narrow.margin);
+    });
+    expectNoOverlap(items);
+  });
+
 
   // 统一行高 + 整体垂直居中：可用高度充足时分组居中，不悬在顶部
   it('centers the aligned group vertically when space allows', () => {

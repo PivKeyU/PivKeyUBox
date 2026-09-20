@@ -142,7 +142,11 @@ function createDockLayout(ids: string[], viewport: NormalizedViewport) {
   // 单列容量：按最小面板高度估算一列能放几个
   const columnCapacity = Math.max(1, Math.floor((viewport.availableHeight + viewport.gap) / (panelMinHeight + viewport.gap)));
   const columns = Math.max(1, Math.ceil(ids.length / columnCapacity));
-  // 宽度优先 304，窄屏按列数收缩；高度按单列容量均分（贴满列）
+  // 视口很窄时最少列宽都放不下这么多列：交给通用网格（会退回居中行布局），
+  // 否则最左边几列的 x 会算成负数，把面板推出屏幕左缘。与 corners/balanced
+  // 预设的兜底写法一致（原生 Manager.CreateDockLayout 同步保持此行为）。
+  const minimumRequiredWidth = panelMinWidth * columns + viewport.gap * Math.max(0, columns - 1);
+  if (minimumRequiredWidth > viewport.availableWidth) return placeCenteredRows(ids, viewport, chooseGrid(ids.length, viewport));
   const panelWidth = clamp(Math.floor((Math.min(viewport.availableWidth, columns * 304 + Math.max(0, columns - 1) * viewport.gap) - Math.max(0, columns - 1) * viewport.gap) / columns), panelMinWidth, 304);
   const panelHeight = clamp(Math.floor((viewport.availableHeight - Math.max(0, columnCapacity - 1) * viewport.gap) / columnCapacity), panelMinHeight, 220);
   ids.forEach((id, index) => {
