@@ -237,7 +237,7 @@ namespace PivkeyOrganizer
         public string Alignment = "left";     // left | center | right
         public int Columns = 0;
         public bool ShowLabels = true;
-        public double LabelSize = 10;
+        public double LabelSize = 12;
     }
 
     // 组织移动（对应前端 OrganizationMove）
@@ -1792,7 +1792,7 @@ namespace PivkeyOrganizer
                 object rawShow;
                 if (dict.TryGetValue("showLabels", out rawShow) && rawShow is bool) layout.ShowLabels = (bool)rawShow;
                 number = AsNumber(Get(dict, "labelSize"));
-                if (!double.IsNaN(number) && !double.IsInfinity(number)) layout.LabelSize = Math.Max(8, Math.Min(14, number));
+                if (!double.IsNaN(number) && !double.IsInfinity(number)) layout.LabelSize = Math.Max(8, Math.Min(18, number));
                 target[pair.Key] = layout;
             }
         }
@@ -2325,6 +2325,11 @@ namespace PivkeyOrganizer
             // 单列容量：按最小面板高度估算一列能放几个
             int columnCapacity = Math.Max(1, (int)Math.Floor((viewport.AvailableHeight + viewport.Gap) / (PanelMinHeight + viewport.Gap)));
             int columns = Math.Max(1, (int)Math.Ceiling((double)ids.Count / columnCapacity));
+            // 视口很窄时最少列宽都放不下这么多列：交给通用网格（会退回居中行布局），
+            // 否则最左边几列的 x 会算成负数，把面板推出屏幕左缘。与 corners/balanced
+            // 预设的兜底写法一致。
+            double minimumRequiredWidth = PanelMinWidth * columns + viewport.Gap * Math.Max(0, columns - 1);
+            if (minimumRequiredWidth > viewport.AvailableWidth) return PlaceCenteredRows(ids, viewport, ChooseGrid(ids.Count, viewport));
             // 宽度优先 304，窄屏按列数收缩；高度按单列容量均分（贴满列）
             double widthLimit = Math.Min(viewport.AvailableWidth, columns * 304 + Math.Max(0, columns - 1) * viewport.Gap);
             double panelWidth = Clamp(Math.Floor((widthLimit - Math.Max(0, columns - 1) * viewport.Gap) / columns), PanelMinWidth, 304);
@@ -2469,12 +2474,20 @@ namespace PivkeyOrganizer
             return result;
         }
 
-        /// 工作区视口（对齐 App.tsx：width max(800, innerWidth/zoom)，height max(560, ...)）
+        /// 工作区视口：直接采用真实工作区尺寸（DIP）。
+        /// 高缩放 / 小屏下工作区可能只有 1366x768 甚至更小，若在此处用 800x560 这类
+        /// 虚构下限把视口撑大，预设布局会算出超出实际空间的位置与尺寸，随后被各窗口
+        /// 自己的钳制逻辑压缩，最终表现为面板挤压 / 重叠 / 越界。
+        /// 下限只保留防御性语义：宽度至少能放下两个最小宽度面板（2 x PanelMinWidth
+        /// 加左右各 24 边距），高度至少能放下一个最小高度面板，用于兜住工作区返回 0
+        /// 之类的异常值。
+        /// 注：WorkAreaWidth/Height 来自 SystemParameters.WorkArea，已是逻辑像素（DIP），
+        /// 这里不再乘任何缩放系数。
         private PanelViewport GetLayoutViewport()
         {
             PanelViewport viewport = new PanelViewport();
-            viewport.Width = Math.Max(800, host.WorkAreaWidth);
-            viewport.Height = Math.Max(560, host.WorkAreaHeight);
+            viewport.Width = Math.Max(PanelMinWidth * 2 + 48, host.WorkAreaWidth);
+            viewport.Height = Math.Max(200, host.WorkAreaHeight);
             viewport.Margin = 24;
             viewport.Top = 24;
             viewport.Bottom = 24;
@@ -3187,6 +3200,7 @@ namespace PivkeyOrganizer
                     ? panelHeaderSurface
                     : (magic != null ? ToHexColor(ResolveSurfaceRgb("custom", magic, effectiveTheme, preferences.CustomSurfaceColor)) : panelHeaderSurface);
                 panel.glassOpacity = preferences.GlassOpacity;
+                panel.uiScale = preferences.UiScale;
                 panel.material = preferences.Material;
                 panel.theme = effectiveTheme;
                 panel.compact = preferences.CompactView;
@@ -3294,7 +3308,7 @@ namespace PivkeyOrganizer
         private static string BuildPanelKey(PanelSyncData panel)
         {
             return BuildItemKey(panel) + "|" + panel.id + "|" + panel.name + "|" + panel.color + "|" + panel.themeAccent
-                + "|" + panel.headerSurface + "|" + FormatNumber(panel.glassOpacity) + "|" + panel.theme
+                + "|" + panel.headerSurface + "|" + FormatNumber(panel.glassOpacity) + "|" + FormatNumber(panel.uiScale) + "|" + panel.theme
                 + "|" + panel.material
                 + "|" + (panel.capsuleMode ? "true" : "false")
                 + "|" + (panel.compact ? "true" : "false") + "|" + panel.viewMode + "|" + panel.sortMode
@@ -3608,7 +3622,7 @@ namespace PivkeyOrganizer
                     next.Alignment = current.Alignment;
                     next.Columns = current.Columns;
                     next.ShowLabels = current.ShowLabels;
-                    next.LabelSize = Math.Max(8, Math.Min(14, labelSize));
+                    next.LabelSize = Math.Max(8, Math.Min(18, labelSize));
                     itemLayouts[id] = next;
                     MarkDirty();
                 }

@@ -53,6 +53,7 @@ namespace PivkeyOrganizer
         public string theme;
         public string material;       // 材质模式：acrylic=真亚克力模糊，solid=纯色渐变（缺省 acrylic）
         public bool compact;
+        public double uiScale;       // 界面缩放百分比（80–130，缺省 100）；仅影响 DIP 逻辑尺寸，不含系统 DPI
         public double itemSize;
         public double iconSize;
         public double itemGap;
@@ -672,6 +673,41 @@ namespace PivkeyOrganizer
         private string currentHeaderSurface = null;
         private int currentGlassOpacity = 88;
         private string currentMaterial = "acrylic";
+        private double currentUiScale = 100;   // 最近一次同步到的界面缩放（80–130）；仅影响 DIP 逻辑尺寸
+
+        // 界面缩放变化时失效 shell 图标缓存：下一次扫描会按新的像素档位重新生成图标。
+        // 只做缓存失效，不触发重扫——重扫由 Manager 的既有流程负责。
+        private void ApplyUiScale(double uiScale)
+        {
+            double next = (uiScale >= 80 && uiScale <= 130) ? uiScale : 100;
+            if (Math.Abs(next - currentUiScale) < 0.5) return;
+            currentUiScale = next;
+            InvalidateShellIconCache();
+        }
+
+        // 当前显示器的 DPI 缩放比（96 DPI = 1.0）。句柄未就绪时回退主屏 DPI。
+        internal double CurrentDpiScale()
+        {
+            try
+            {
+                IntPtr handle = hwnd;
+                if (handle != IntPtr.Zero)
+                {
+                    uint dpi = GetDpiForWindow(handle);
+                    if (dpi > 0) return dpi / 96.0;
+                }
+            }
+            catch { }
+            try
+            {
+                using (System.Drawing.Graphics g = System.Drawing.Graphics.FromHwnd(IntPtr.Zero))
+                {
+                    if (g != null && g.DpiX > 0) return g.DpiX / 96.0;
+                }
+            }
+            catch { }
+            return 1.0;
+        }
 
         private void ApplyTrayMenuPalette(PanelSyncData panel)
         {
@@ -1683,6 +1719,7 @@ namespace PivkeyOrganizer
             {
                 if (value == null || String.IsNullOrWhiteSpace(value.theme)) continue;
                 ApplyTrayMenuPalette(value);
+                ApplyUiScale(value.uiScale);
                 break;
             }
             if (!startupSyncDone)
@@ -2197,7 +2234,7 @@ namespace PivkeyOrganizer
             {
                 try
                 {
-                    string cacheFile = GetIconCacheFilePath(path);
+                    string cacheFile = GetIconCacheFilePath(path, iconCacheEpoch);
                     if (File.Exists(cacheFile))
                     {
                         byte[] bytes = File.ReadAllBytes(cacheFile);
@@ -2209,7 +2246,7 @@ namespace PivkeyOrganizer
             if (icon == null)
             {
                 icon = GetShellIcon(path);
-                WriteIconCacheFile(path, icon);
+                WriteIconCacheFile(path, icon, iconCacheEpoch);
             }
 
             lock (shellIconCacheLock)
@@ -2426,20 +2463,20 @@ namespace PivkeyOrganizer
             return dir;
         }
 
-        private static string GetIconCacheFilePath(string path)
+        // 磁盘图标缓存路径：文件名包含「像素档位 epoch」，不同界面缩放档位的图标互不覆盖，
+        // 升级档位后旧档位自然不再命中（由既有清理逻辑回收）。
+        private static string GetIconCacheFilePath(string path, int epoch)
         {
             using (SHA1 sha = SHA1.Create())
             {
-                // 缓存版本前缀：图标提取分辨率升级（64→96px，JUMBO 源）后旧缓存整体失效，
-                // 一次性清理旧文件再按新前缀重建，避免继续命中低清图标。
-                byte[] hash = sha.ComputeHash(Encoding.UTF8.GetBytes("hires-v2:" + path.ToLowerInvariant()));
+                byte[] hash = sha.ComputeHash(Encoding.UTF8.GetBytes("hires-v3:e" + epoch + ":" + path.ToLowerInvariant()));
                 StringBuilder builder = new StringBuilder(16);
                 for (int i = 0; i < 8; i++) builder.Append(hash[i].ToString("x2"));
                 return Path.Combine(GetIconCacheDirectory(), builder.ToString() + ".png");
             }
         }
 
-        private static void WriteIconCacheFile(string path, string iconDataUrl)
+        private static void WriteIconCacheFile(string path, string iconDataUrl, int writeEpoch)
         {
             try
             {
@@ -2448,7 +2485,7 @@ namespace PivkeyOrganizer
                 byte[] bytes = Convert.FromBase64String(iconDataUrl.Substring(prefix.Length));
                 if (bytes.Length == 0) return;
                 Directory.CreateDirectory(GetIconCacheDirectory());
-                File.WriteAllBytes(GetIconCacheFilePath(path), bytes);
+                File.WriteAllBytes(GetIconCacheFilePath(path, writeEpoch), bytes);
                 TrimIconDiskCache();
             }
             catch { }
@@ -2708,7 +2745,10 @@ namespace PivkeyOrganizer
             portalWatchers.Clear();
         }
 
-        private static string GetShellIcon(string path)
+        // 面板图标的默认逻辑尺寸（DIP），与 defaultItemLayout.iconSize(54) 保持一致
+        private const double DefaultShellIconLogicalSize = 54;
+
+        private string GetShellIcon(string path)
         {
             ShortcutInfo shortcut = ReadShortcut(path);
             string shortcutIcon = GetShortcutIcon(shortcut);
@@ -2731,19 +2771,21 @@ namespace PivkeyOrganizer
             return GetShellIconFromPath(path);
         }
 
-        private static string GetShellIconFromPath(string path)
+        private string GetShellIconFromPath(string path)
         {
+            // 目标位图像素 = 默认图标逻辑尺寸 × uiScale × 系统 DPI（本机 150% DPI、uiScale=100 时为 96px）
+            int targetPx = ResolveIconPixelSize(DefaultShellIconLogicalSize, currentUiScale, CurrentDpiScale());
             IntPtr large = GetLargeShellIcon(path);
             if (large != IntPtr.Zero)
             {
-                try { return IconToDataUrl(large); }
+                try { return IconToDataUrl(large, targetPx); }
                 finally { DestroyIcon(large); }
             }
 
             ShellFileInfo info = new ShellFileInfo();
             IntPtr result = SHGetFileInfo(path, 0, ref info, (uint)Marshal.SizeOf(typeof(ShellFileInfo)), 0x000000100 | 0x000000000);
             if (result == IntPtr.Zero || info.hIcon == IntPtr.Zero) return null;
-            try { return IconToDataUrl(info.hIcon); }
+            try { return IconToDataUrl(info.hIcon, targetPx); }
             finally { DestroyIcon(info.hIcon); }
         }
 
@@ -2783,12 +2825,19 @@ namespace PivkeyOrganizer
             }
         }
 
-        private static string IconToDataUrl(IntPtr iconHandle)
+        // 按目标像素生成 PNG 数据 URL：targetPx 会被夹到 [48,256] 并对齐到 16 的倍数，
+        // 内边距取 targetPx/16（至少 2px），保持原 96→84 的 12.5% 内缩比例。
+        private static string IconToDataUrl(IntPtr iconHandle, int targetPx)
         {
             if (iconHandle == IntPtr.Zero) return null;
-            // 96px 画布：覆盖 65DIP 图标在 150% DPI 下的 97.5px 需求，WPF 侧再高质量缩放
+            int canvas = targetPx < 48 ? 48 : (targetPx > 256 ? 256 : targetPx);
+            canvas = ((canvas + 15) / 16) * 16;
+            if (canvas > 256) canvas = 256;
+            if (canvas < 48) canvas = 48;
+            int padding = Math.Max(2, canvas / 16);
+            int inner = canvas - padding * 2;
             using (System.Drawing.Icon icon = (System.Drawing.Icon)System.Drawing.Icon.FromHandle(iconHandle).Clone())
-            using (System.Drawing.Bitmap bitmap = new System.Drawing.Bitmap(96, 96, System.Drawing.Imaging.PixelFormat.Format32bppArgb))
+            using (System.Drawing.Bitmap bitmap = new System.Drawing.Bitmap(canvas, canvas, System.Drawing.Imaging.PixelFormat.Format32bppArgb))
             using (MemoryStream stream = new MemoryStream())
             {
                 using (System.Drawing.Graphics graphics = System.Drawing.Graphics.FromImage(bitmap))
@@ -2797,11 +2846,28 @@ namespace PivkeyOrganizer
                     graphics.CompositingQuality = System.Drawing.Drawing2D.CompositingQuality.HighQuality;
                     graphics.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
                     graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.HighQuality;
-                    graphics.DrawIcon(icon, new System.Drawing.Rectangle(6, 6, 84, 84));
+                    graphics.DrawIcon(icon, new System.Drawing.Rectangle(padding, padding, inner, inner));
                 }
                 bitmap.Save(stream, System.Drawing.Imaging.ImageFormat.Png);
                 return "data:image/png;base64," + Convert.ToBase64String(stream.ToArray());
             }
+        }
+
+        // 计算某逻辑尺寸在指定 UI 缩放与 DPI 下需要的位图像素（向上取 16 倍数，夹到 [48,256]）
+        internal static int ResolveIconPixelSize(double logicalSize, double uiScalePercent, double dpiScale)
+        {
+            // 任何非法输入都回落到安全默认值：不抛异常、不返回 0
+            if (Double.IsNaN(logicalSize) || Double.IsInfinity(logicalSize) || logicalSize <= 0) logicalSize = 54;
+            if (Double.IsNaN(uiScalePercent) || Double.IsInfinity(uiScalePercent) || uiScalePercent <= 0) uiScalePercent = 100;
+            if (Double.IsNaN(dpiScale) || Double.IsInfinity(dpiScale) || dpiScale <= 0) dpiScale = 1.0;
+
+            double raw = logicalSize * (uiScalePercent / 100.0) * dpiScale;
+            if (Double.IsNaN(raw) || Double.IsInfinity(raw) || raw <= 0) raw = 48;
+
+            double steps = Math.Ceiling(raw / 16.0);
+            if (steps < 3) steps = 3;    // 48px 下限
+            if (steps > 16) steps = 16;  // 256px 上限
+            return (int)(steps * 16);
         }
 
         private static bool IsImagePath(string path)
@@ -2849,7 +2915,7 @@ namespace PivkeyOrganizer
             return null;
         }
 
-        private static string GetShortcutIcon(ShortcutInfo shortcut)
+        private string GetShortcutIcon(ShortcutInfo shortcut)
         {
             if (shortcut == null || String.IsNullOrWhiteSpace(shortcut.IconLocation)) return null;
             string iconPath = shortcut.IconLocation.Trim();
@@ -2870,7 +2936,8 @@ namespace PivkeyOrganizer
             {
                 if (ExtractIconEx(iconPath, iconIndex, large, small, 1) == 0) return null;
                 IntPtr handle = large[0] != IntPtr.Zero ? large[0] : small[0];
-                return IconToDataUrl(handle);
+                int targetPx = ResolveIconPixelSize(DefaultShellIconLogicalSize, currentUiScale, CurrentDpiScale());
+                return IconToDataUrl(handle, targetPx);
             }
             catch { return null; }
             finally
@@ -3177,6 +3244,8 @@ namespace PivkeyOrganizer
         [DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr hWnd);
         [DllImport("user32.dll")] private static extern bool BringWindowToTop(IntPtr hWnd);
         [DllImport("user32.dll")] private static extern int SetWindowRgn(IntPtr hWnd, IntPtr region, bool redraw);
+        // 每显示器 DPI：用于计算图标位图需要的物理像素（Win10 1607+ 可用）
+        [DllImport("user32.dll")] private static extern uint GetDpiForWindow(IntPtr hWnd);
         [DllImport("gdi32.dll")] private static extern IntPtr CreateRectRgn(int left, int top, int right, int bottom);
         [DllImport("gdi32.dll")] private static extern IntPtr CreateRoundRectRgn(int left, int top, int right, int bottom, int width, int height);
         [DllImport("gdi32.dll")] private static extern int CombineRgn(IntPtr destination, IntPtr source1, IntPtr source2, int mode);
@@ -3198,6 +3267,22 @@ namespace PivkeyOrganizer
                 shellIconCache.Remove(path);
             }
         }
+
+        // 清空全部 shell 图标内存缓存并切换磁盘缓存版本前缀，使旧像素档位的图标整体失效。
+        // 触发时机：界面缩放变化（DIP 尺寸变了 → 需要的位图像素档位也变了）。
+        // 只失效不重扫：下一次扫描会按新档位重新生成并按需写盘。
+        private void InvalidateShellIconCache()
+        {
+            lock (shellIconCacheLock)
+            {
+                shellIconCache.Clear();
+                scanEntryCache.Clear();
+            }
+            iconCacheEpoch++;
+        }
+
+        // 磁盘图标缓存的版本号：随界面缩放档位递增，让不同档位的图标互不覆盖。
+        private int iconCacheEpoch;
 
         private sealed class IconCacheItem
         {

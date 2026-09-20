@@ -10,7 +10,7 @@ export const defaultItemLayout: PanelItemLayout = {
   alignment: 'left',
   columns: 0,
   showLabels: true,
-  labelSize: 10,
+  labelSize: 12,
 };
 
 export type PanelItemLayouts = Record<string, PanelItemLayout>;
@@ -32,7 +32,7 @@ export function normalizeItemLayout(value: unknown): PanelItemLayout {
     alignment: parsed.alignment === 'center' || parsed.alignment === 'right' ? parsed.alignment : defaultItemLayout.alignment,
     columns: Math.round(boundedNumber(parsed.columns, defaultItemLayout.columns, 0, 8)),
     showLabels: typeof parsed.showLabels === 'boolean' ? parsed.showLabels : defaultItemLayout.showLabels,
-    labelSize: boundedNumber(parsed.labelSize, defaultItemLayout.labelSize, 8, 14),
+    labelSize: boundedNumber(parsed.labelSize, defaultItemLayout.labelSize, 8, 18),
   };
 }
 

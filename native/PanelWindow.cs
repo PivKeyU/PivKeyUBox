@@ -84,7 +84,10 @@ namespace PivkeyOrganizer
         private static long decodedImageCacheBytes; // 当前缓存估算字节
         private static readonly object decodedImageCacheLock = new object();
         private const long MaxDecodedImageCacheBytes = 32L * 1024 * 1024; // 缓存上限 32MB
-        private const long LowDecodedImageCacheBytes = 24L * 1024 * 1024; // 低水位：逐出到 24MB 停止（滞回，避免反复逐出）
+        private const long MinDecodedImageCacheBytes = 24L * 1024 * 1024;  // 低水位：逐出到 24MB 停止（滞回，避免边界反复抖动）
+        // 解码任务去重与并发上限：同一 key 只排一次队；同时最多 4 个后台解码，避免批量大图同时解压占满 CPU/内存
+        private static readonly HashSet<string> pendingIconDecodes = new HashSet<string>(StringComparer.Ordinal);
+        private static readonly System.Threading.Semaphore iconDecodeSlots = new System.Threading.Semaphore(4, 4);
         private IntPtr hwnd;
         private bool pinned;
         private bool collapsed;
@@ -109,7 +112,12 @@ namespace PivkeyOrganizer
         private double itemSize = 76;
         private double iconSize = 54;
         private double itemGap = 6;
-        private double labelSize = 10;
+        private double labelSize = 12;
+        // 界面缩放（应用级，百分比，80-130）与系统 DPI 缩放（GetDpiForWindow/96）。
+        // WPF 的 Width/FontSize 等 DIP 属性只乘 uiScale，绝不重复乘 dpiScale；只有位图像素请求需要乘 dpiScale。
+        private double uiScale = 100;
+        private double dpiScale = 1.0;
+        private bool narrowHeader;             // 标题条窄态（宽度 < 200 DIP）：只留标题 + 折叠 + 菜单按钮
         private string itemAlignment = "left";
         private int itemColumns;
         private int renderedColumns;
@@ -199,8 +207,8 @@ namespace PivkeyOrganizer
             Topmost = false;
             AllowsTransparency = true;
             Background = Brushes.Transparent;
-            MinWidth = 230;
-            MinHeight = HeaderBarHeight;
+            MinWidth = Dip(230);
+            MinHeight = ScaledHeaderBarHeight();
             AllowDrop = true;
 
             // 文字清晰度三件套：分层透明窗口默认被 WPF 禁用 ClearType，Ideal 模式的
@@ -220,7 +228,7 @@ namespace PivkeyOrganizer
             root.Children.Add(frame);
 
             Grid content = new Grid();
-            content.RowDefinitions.Add(new RowDefinition { Height = new GridLength(HeaderBarHeight) });
+            content.RowDefinitions.Add(new RowDefinition { Height = new GridLength(ScaledHeaderBarHeight()) });
             content.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             content.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
             frame.Child = content;
@@ -235,12 +243,12 @@ namespace PivkeyOrganizer
             Grid.SetRow(header, 0);
             content.Children.Add(header);
 
-            Grid headerGrid = new Grid { Margin = new Thickness(8, 0, 6, 0) };
-            headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(20) });
+            Grid headerGrid = new Grid { Margin = new Thickness(Dip(8), 0, Dip(6), 0) };
+            headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(Dip(20)) });
             headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(24) });
+            headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(Dip(24)) });
             header.Child = headerGrid;
 
             mark = new Border { Width = 18, Height = 18, CornerRadius = new CornerRadius(6), BorderThickness = new Thickness(0), IsHitTestVisible = false };
@@ -249,7 +257,7 @@ namespace PivkeyOrganizer
             Grid.SetColumn(mark, 0);
             headerGrid.Children.Add(mark);
 
-            title = new TextBlock { VerticalAlignment = VerticalAlignment.Center, FontSize = 13, FontWeight = FontWeights.Medium, FontFamily = ItemLabelFont, TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(6, 0, 4, 0) };
+            title = new TextBlock { VerticalAlignment = VerticalAlignment.Center, FontSize = Dip(14), FontWeight = FontWeights.Medium, FontFamily = ItemLabelFont, TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(6, 0, 4, 0) };
             Grid.SetColumn(title, 1);
             headerGrid.Children.Add(title);
 
@@ -262,7 +270,7 @@ namespace PivkeyOrganizer
                 VerticalAlignment = VerticalAlignment.Center,
                 IsHitTestVisible = false
             };
-            count = new TextBlock { VerticalAlignment = VerticalAlignment.Center, FontSize = 10.5, FontWeight = FontWeights.Medium, FontFamily = ItemLabelFont, Foreground = new SolidColorBrush(themeAccent) };
+            count = new TextBlock { VerticalAlignment = VerticalAlignment.Center, FontSize = Dip(11), FontWeight = FontWeights.Medium, FontFamily = ItemLabelFont, Foreground = new SolidColorBrush(themeAccent) };
             countBadge.Child = count;
             Grid.SetColumn(countBadge, 2);
             headerGrid.Children.Add(countBadge);
@@ -270,12 +278,12 @@ namespace PivkeyOrganizer
             headerToolsPanel = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, Visibility = Visibility.Collapsed };
 
             searchButton = HeaderButton("面板内搜索");
-            searchButton.Content = CreatePhosphorIcon("search", 14, true);
+            searchButton.Content = CreatePhosphorIcon("search", Dip(15), true);
             searchButton.Click += delegate { ToggleSearchBar(); };
             headerToolsPanel.Children.Add(searchButton);
 
             sizeButton = HeaderButton("调整项目显示大小");
-            sizeButton.Content = CreatePhosphorIcon("sliders", 14, true);
+            sizeButton.Content = CreatePhosphorIcon("sliders", Dip(15), true);
             sizeButton.Click += delegate
             {
                 sizeButton.ContextMenu = CreateItemSizeMenu();
@@ -286,13 +294,13 @@ namespace PivkeyOrganizer
             headerToolsPanel.Children.Add(sizeButton);
 
             viewButton = HeaderButton("切换视图；右键选择排序");
-            viewButton.Content = CreatePhosphorIcon("grid", 14, true);
+            viewButton.Content = CreatePhosphorIcon("grid", Dip(15), true);
             viewButton.Click += delegate { SetViewMode(viewMode == "grid" ? "list" : "grid", true); };
             viewButton.ContextMenu = CreateViewMenu();
             headerToolsPanel.Children.Add(viewButton);
 
             pinButton = HeaderButton("固定");
-            pinButton.Content = CreatePhosphorIcon("pin", 14, true);
+            pinButton.Content = CreatePhosphorIcon("pin", Dip(15), true);
             pinButton.Click += delegate { host.PostManagerEvent("panelPin", panelId); };
             headerToolsPanel.Children.Add(pinButton);
 
@@ -300,7 +308,7 @@ namespace PivkeyOrganizer
             headerGrid.Children.Add(headerToolsPanel);
 
             collapseButton = HeaderButton("折叠");
-            collapseButton.Content = CreatePhosphorIcon("chevron-down", 14, true);
+            collapseButton.Content = CreatePhosphorIcon("chevron-down", Dip(15), true);
             collapseButton.Click += delegate { host.PostManagerEvent("panelCollapse", panelId); };
             Grid.SetColumn(collapseButton, 4);
             headerGrid.Children.Add(collapseButton);
@@ -315,7 +323,7 @@ namespace PivkeyOrganizer
                 Padding = new Thickness(8, 2, 8, 2),
                 BorderThickness = new Thickness(0),
                 Background = Brushes.Transparent,
-                FontSize = 11,
+                FontSize = Dip(11),
                 FontFamily = ItemLabelFont,
                 VerticalContentAlignment = VerticalAlignment.Center,
                 ToolTip = "搜索名称、扩展名或路径"
@@ -407,8 +415,8 @@ namespace PivkeyOrganizer
             // 图标胶囊：折叠 + 胶囊模式时替代标题条显示，点击展开分区
             capsuleView = new Border
             {
-                Width = CapsuleSize,
-                Height = CapsuleSize,
+                Width = ScaledCapsuleSize(),
+                Height = ScaledCapsuleSize(),
                 CornerRadius = new CornerRadius(CapsuleRadius),
                 BorderThickness = new Thickness(1),
                 Background = Brushes.Transparent,
@@ -425,10 +433,10 @@ namespace PivkeyOrganizer
                 CornerRadius = new CornerRadius(CapsuleRadius - 1),
                 BorderThickness = new Thickness(1)
             };
-            iconShape = new ShapePath { Stroke = null, StrokeThickness = 0, Stretch = Stretch.Uniform, Width = 28, Height = 28 };
-            capsuleImage = new Image { Width = 28, Height = 28, Stretch = Stretch.Uniform, Visibility = Visibility.Collapsed };
-            capsuleInner = new Grid { Width = 28, Height = 28 };
-            capsuleInner.RenderTransform = new ScaleTransform(1, 1, 14, 14); // hover 缩放中心：28×28 中心点 (14,14)
+            iconShape = new ShapePath { Stroke = null, StrokeThickness = 0, Stretch = Stretch.Uniform, Width = Dip(28), Height = Dip(28) };
+            capsuleImage = new Image { Width = Dip(28), Height = Dip(28), Stretch = Stretch.Uniform, Visibility = Visibility.Collapsed };
+            capsuleInner = new Grid { Width = Dip(28), Height = Dip(28) };
+            capsuleInner.RenderTransform = new ScaleTransform(1, 1, Dip(14), Dip(14)); // hover 缩放中心：内容区中心点
             iconShape.Effect = new System.Windows.Media.Effects.DropShadowEffect
             {
                 BlurRadius = 6,
@@ -494,21 +502,146 @@ namespace PivkeyOrganizer
                 if (resizing) return;
                 RefreshItemLayoutForSize();
             };
+            ApplyScaleMetrics();   // 首帧按默认 uiScale 定字号，UpdateContent 收到真实值时再刷一次
+        }
+
+        // 逻辑尺寸换算：仅应用界面缩放，不含系统 DPI（WPF 会自动把 DIP 换算成物理像素）
+        private double Dip(double value)
+        {
+            return value * uiScale / 100.0;
+        }
+
+        // 折叠态高度：胶囊模式为胶囊边长，普通模式为标题条高度；两者都随界面缩放
+        private double ScaledCollapsedHeight()
+        {
+            return Dip(capsuleMode ? CapsuleSize : HeaderBarHeight);
+        }
+
+        // 标题条高度（随界面缩放）
+        private double ScaledHeaderBarHeight()
+        {
+            return Dip(HeaderBarHeight);
+        }
+
+        // 胶囊边长（随界面缩放）
+        private double ScaledCapsuleSize()
+        {
+            return Dip(CapsuleSize);
+        }
+
+        // 当前图标需要的位图像素档位（逻辑尺寸 × 界面缩放 × 系统 DPI，向上取 16 倍数）
+        private int IconTargetPx()
+        {
+            return DesktopWindow.ResolveIconPixelSize(iconSize, uiScale, dpiScale);
+        }
+
+        // 长期存活控件的字号/尺寸随 uiScale 刷新（菜单项每次右键重建，直接在构建时用 Dip 即可）
+        private void ApplyScaleMetrics()
+        {
+            if (title != null) title.FontSize = Dip(14);
+            if (count != null) count.FontSize = Dip(11);
+            if (searchBox != null) searchBox.FontSize = Dip(11);
+            ApplyHeaderIconScale(searchButton);
+            ApplyHeaderIconScale(sizeButton);
+            ApplyHeaderIconScale(viewButton);
+            ApplyHeaderIconScale(pinButton);
+            ApplyHeaderIconScale(collapseButton);
+            ApplyItemLabelFontSize();
+            // 几何尺寸随界面缩放刷新：标题行高 / 窗口最小高度 / 胶囊方块与内容
+            MinHeight = ScaledHeaderBarHeight();
+            Grid contentGrid = frame == null ? null : frame.Child as Grid;
+            if (contentGrid != null && contentGrid.RowDefinitions.Count > 0)
+                contentGrid.RowDefinitions[0].Height = new GridLength(ScaledHeaderBarHeight());
+            if (capsuleView != null)
+            {
+                capsuleView.Width = ScaledCapsuleSize();
+                capsuleView.Height = ScaledCapsuleSize();
+            }
+            if (capsuleInner != null)
+            {
+                capsuleInner.Width = Dip(28);
+                capsuleInner.Height = Dip(28);
+                ScaleTransform capsuleScale = capsuleInner.RenderTransform as ScaleTransform;
+                if (capsuleScale != null) { capsuleScale.CenterX = Dip(14); capsuleScale.CenterY = Dip(14); }
+            }
+            if (iconShape != null) { iconShape.Width = Dip(28); iconShape.Height = Dip(28); }
+            if (capsuleImage != null) { capsuleImage.Width = Dip(28); capsuleImage.Height = Dip(28); }
+        }
+
+        // 标题栏按钮图标（Phosphor 的 Viewbox）：宽度/高度随界面缩放
+        private void ApplyHeaderIconScale(Button button)
+        {
+            if (button == null) return;
+            FrameworkElement content = button.Content as FrameworkElement;
+            if (content == null) return;
+            content.Width = Dip(15);
+            content.Height = Dip(15);
+        }
+
+        // 条目标签字号：列表视图在 labelSize 基础上 +1.5（下方 +8 字号）
+        private void ApplyItemLabelFontSize()
+        {
+            double next = viewMode == "list" ? Dip(Math.Max(10, labelSize + 1.5)) : Dip(labelSize);
+            foreach (Button button in EnumerateItemButtons())
+            {
+                StackPanel stack = button.Content as StackPanel;
+                if (stack == null || stack.Children.Count < 2) continue;
+                TextBlock label = stack.Children[1] as TextBlock;
+                if (label == null) continue;
+                label.FontSize = next;
+            }
+        }
+
+        // 遍历 itemsPanel 里所有条目 Button（跳过行容器 Grid/StackPanel）
+        private IEnumerable<Button> EnumerateItemButtons()
+        {
+            List<Button> found = new List<Button>();
+            if (itemsPanel == null) return found;
+            foreach (UIElement child in itemsPanel.Children)
+            {
+                Button direct = child as Button;
+                if (direct != null) { found.Add(direct); continue; }
+                Panel container = child as Panel;
+                if (container == null) continue;
+                foreach (UIElement grandChild in container.Children)
+                {
+                    Button nested = grandChild as Button;
+                    if (nested != null) found.Add(nested);
+                }
+            }
+            return found;
         }
 
         private Button HeaderButton(string tooltip)
         {
-            Button button = new Button { Width = 24, Height = 24, Padding = new Thickness(0), Margin = new Thickness(1), BorderThickness = new Thickness(0), Background = Brushes.Transparent, Foreground = new SolidColorBrush(darkTheme ? Color.FromRgb(165, 165, 165) : Color.FromRgb(90, 90, 90)), ToolTip = tooltip, Cursor = Cursors.Hand, Focusable = false, Template = FlatButtonTemplate() };
+            double box = HeaderButtonBoxSize();
+            Button button = new Button { Width = box, Height = box, Padding = new Thickness(0), Margin = new Thickness(1), BorderThickness = new Thickness(0), Background = Brushes.Transparent, Foreground = new SolidColorBrush(darkTheme ? Color.FromRgb(165, 165, 165) : Color.FromRgb(90, 90, 90)), ToolTip = tooltip, Cursor = Cursors.Hand, Focusable = false, Template = FlatButtonTemplate() };
             // 吉伊卡哇萌系圆角悬停：柔和粉色微光
             button.MouseEnter += delegate { button.Background = new SolidColorBrush(darkTheme ? Color.FromArgb(0x20, 255, 255, 255) : Color.FromArgb(0x1C, themeAccent.R, themeAccent.G, themeAccent.B)); };
             button.MouseLeave += delegate { button.Background = Brushes.Transparent; };
             return button;
         }
 
+        // 标题栏按钮热区边长：随界面缩放但不高过缩放后的标题条高度
+        private double HeaderButtonBoxSize()
+        {
+            return Math.Max(16, Math.Min(Dip(24), ScaledHeaderBarHeight() - 2));
+        }
+
         private void UpdateHeaderToolsVisibility(bool hover)
         {
             if (headerToolsPanel == null) return;
-            if (hover)
+            // 窄宽度（< 200 DIP）标题条：只保留标题 + 折叠 + 菜单按钮，四个工具按钮彻底收起（hover 也不出）
+            if (narrowHeader && !hover)
+            {
+                searchButton.Visibility = Visibility.Collapsed;
+                sizeButton.Visibility = Visibility.Collapsed;
+                viewButton.Visibility = Visibility.Collapsed;
+                pinButton.Visibility = Visibility.Collapsed;
+                headerToolsPanel.Visibility = Visibility.Collapsed;
+                return;
+            }
+            if (hover && !narrowHeader)
             {
                 searchButton.Visibility = Visibility.Visible;
                 sizeButton.Visibility = Visibility.Visible;
@@ -518,14 +651,24 @@ namespace PivkeyOrganizer
             }
             else
             {
-                bool showSearch = searchBar != null && searchBar.Visibility == Visibility.Visible;
-                bool showPin = pinned;
+                bool showSearch = !narrowHeader && searchBar != null && searchBar.Visibility == Visibility.Visible;
+                bool showPin = !narrowHeader && pinned;
                 searchButton.Visibility = showSearch ? Visibility.Visible : Visibility.Collapsed;
                 pinButton.Visibility = showPin ? Visibility.Visible : Visibility.Collapsed;
                 sizeButton.Visibility = Visibility.Collapsed;
                 viewButton.Visibility = Visibility.Collapsed;
                 headerToolsPanel.Visibility = (showSearch || showPin) ? Visibility.Visible : Visibility.Collapsed;
             }
+        }
+
+        // 窄标题条状态：宽度 < 200 DIP 时收起四个工具按钮，操作改走右键菜单
+        private void UpdateNarrowHeaderState(double nextWidth)
+        {
+            bool narrow = nextWidth > 0 && nextWidth < 200;
+            if (narrow == narrowHeader) return;
+            narrowHeader = narrow;
+            if (narrow) UpdateHeaderToolsVisibility(false);
+            else UpdateHeaderToolsVisibility(header != null && header.IsMouseOver);
         }
 
         private static FrameworkElement CreatePhosphorIcon(string name, double size, bool bindToButton)
@@ -668,7 +811,7 @@ namespace PivkeyOrganizer
             {
                 double nextItem = Math.Max(44, Math.Min(112, itemSize + (args.Delta > 0 ? 4 : -4)));
                 double nextIcon = Math.Max(24, Math.Min(72, Math.Round(nextItem * 0.71)));
-                double nextLabel = Math.Max(8, Math.Min(14, Math.Round(nextItem * 0.132 * 2) / 2));
+                double nextLabel = Math.Max(8, Math.Min(18, Math.Round(nextItem * 0.132 * 2) / 2));
                 SetItemDisplaySize(nextItem, nextIcon, nextLabel, true);
                 args.Handled = true;
                 return;
@@ -715,14 +858,14 @@ namespace PivkeyOrganizer
                 layoutAnimationTimer.Stop();
                 layoutAnimating = false;
                 SetItemsCache(false);
-                Height = Math.Max(targetHeight, HeaderBarHeight);
-                if (capsuleMode) Width = collapsed ? CapsuleSize : Math.Max(expandedWidth, CapsuleSize);
+                Height = Math.Max(targetHeight, ScaledHeaderBarHeight());
+                if (capsuleMode) Width = collapsed ? ScaledCapsuleSize() : Math.Max(expandedWidth, ScaledCapsuleSize());
                 RefreshCapsuleVisibility();
                 ApplyFrameChrome();
                 return;
             }
             double from = ActualHeight > 0 ? ActualHeight : Height;
-            double to = Math.Max(targetHeight, HeaderBarHeight);
+            double to = Math.Max(targetHeight, ScaledHeaderBarHeight());
             if (Math.Abs(to - from) < 0.5)
             {
                 // 起止高度几乎一致：直接归位，不启动补间
@@ -740,17 +883,17 @@ namespace PivkeyOrganizer
             // 让胶囊"长成"面板而不是宽度瞬间跳变（左下角圆角→直角突变即由此产生）
             double fromWidth = ActualWidth > 0 ? ActualWidth : Width;
             layoutFromWidth = fromWidth;
-            layoutToWidth = capsuleMode ? (collapsed ? CapsuleSize : Math.Max(expandedWidth, CapsuleSize)) : fromWidth;
+            layoutToWidth = capsuleMode ? (collapsed ? ScaledCapsuleSize() : Math.Max(expandedWidth, ScaledCapsuleSize())) : fromWidth;
             layoutAnimationStart = DateTime.UtcNow;
             layoutAnimating = true;
             SetItemsCache(true);
             layoutAnimationTimer.Start();
         }
 
-        // 折叠目标高度：胶囊模式为胶囊边长 48，普通模式为标题条高度 30
+        // 折叠目标高度：胶囊模式为胶囊边长，普通模式为标题条高度；两者都随界面缩放
         private double TargetCollapsedHeight()
         {
-            return capsuleMode ? CapsuleSize : HeaderBarHeight;
+            return ScaledCollapsedHeight();
         }
 
         private void OnLayoutAnimationTick(object sender, EventArgs args)
@@ -874,7 +1017,7 @@ namespace PivkeyOrganizer
                 BorderThickness = new Thickness(0),
                 HasDropShadow = false,
                 FontFamily = MenuUiFont,
-                FontSize = 13,
+                FontSize = Dip(13),
                 RenderTransformOrigin = new Point(.5, .5),
                 RenderTransform = new ScaleTransform(1, 1),
                 SnapsToDevicePixels = true,
@@ -993,7 +1136,7 @@ namespace PivkeyOrganizer
             {
                 Text = text,
                 FontFamily = MenuUiFont,
-                FontSize = 12.5,
+                FontSize = Dip(12.5),
                 FontWeight = FontWeights.Normal,
                 VerticalAlignment = VerticalAlignment.Center,
                 Margin = new Thickness(8, 0, 8, 0),
@@ -1153,6 +1296,11 @@ namespace PivkeyOrganizer
             MenuItem refresh = StyledMenuItem("刷新分区", "refresh");
             refresh.Click += delegate { host.PostManagerEvent("panelRefresh", true); };
 
+            // 窄标题条（< 200 DIP）下四个工具按钮被收起，这里提供等价入口（宽标题条下同样可用）
+            MenuItem search = StyledMenuItem("面板内搜索", "search");
+            search.Click += delegate { RunAfterMenuClosed(menu, delegate { ToggleSearchBar(); }); };
+            MenuItem size = BuildItemSizeSubmenu(menu);
+
             MenuItem newTodo = StyledMenuItem("新建待办清单", "check");
             newTodo.Click += delegate { host.PostManagerEvent("noteCreate", "todo"); };
             MenuItem newMemo = StyledMenuItem("新建随手备忘", "file-text");
@@ -1168,6 +1316,9 @@ namespace PivkeyOrganizer
             menu.Items.Add(pin);
             menu.Items.Add(collapse);
             menu.Items.Add(StyledSeparator());
+            menu.Items.Add(search);
+            menu.Items.Add(size);
+            menu.Items.Add(StyledSeparator());
             menu.Items.Add(newTodo);
             menu.Items.Add(newMemo);
             menu.Items.Add(StyledSeparator());
@@ -1176,6 +1327,34 @@ namespace PivkeyOrganizer
             menu.Items.Add(StyledSeparator());
             menu.Items.Add(BuildArrangeSubmenu(true, menu));
             return menu;
+        }
+
+        // 标题条右键菜单里的「调整项目显示大小」子菜单：与尺寸按钮弹出的预设菜单共享同一组档位
+        private MenuItem BuildItemSizeSubmenu(ContextMenu owner)
+        {
+            MenuItem parent = StyledSubMenuItem("调整项目显示大小", "sliders");
+            parent.Items.Add(BuildItemSizePreset(owner, "紧凑", 60, 40, 9));
+            parent.Items.Add(BuildItemSizePreset(owner, "标准", 76, 54, 10));
+            parent.Items.Add(BuildItemSizePreset(owner, "大", 92, 64, 11));
+            parent.Items.Add(BuildItemSizePreset(owner, "超大", 108, 72, 12));
+            parent.SubmenuOpened += delegate
+            {
+                foreach (object raw in parent.Items)
+                {
+                    MenuItem option = raw as MenuItem;
+                    if (option == null || option.Tag == null) continue;
+                    option.IsChecked = Math.Abs(itemSize - Convert.ToDouble(option.Tag)) < 0.5;
+                }
+            };
+            return parent;
+        }
+
+        private MenuItem BuildItemSizePreset(ContextMenu owner, string text, double nextItemSize, double nextIconSize, double nextLabelSize)
+        {
+            MenuItem option = StyledCheckMenuItem(text, "sliders");
+            option.Tag = nextItemSize;
+            option.Click += delegate { RunAfterMenuClosed(owner, delegate { SetItemDisplaySize(nextItemSize, nextIconSize, nextLabelSize, true); }); };
+            return option;
         }
 
         // “视图与排序”子菜单：视图单选 + 排序单选（DeskBox MenuFlyoutSubItem 分组方式）。
@@ -1318,7 +1497,7 @@ namespace PivkeyOrganizer
         {
             itemSize = Math.Max(44, Math.Min(112, nextItemSize));
             iconSize = Math.Max(24, Math.Min(72, nextIconSize));
-            labelSize = Math.Max(8, Math.Min(14, nextLabelSize));
+            labelSize = Math.Max(8, Math.Min(18, nextLabelSize));
             RebuildItems();
             if (!notify) return;
             Dictionary<string, object> payload = new Dictionary<string, object>();
@@ -1334,7 +1513,7 @@ namespace PivkeyOrganizer
             if (mode != "grid" && mode != "list") mode = "grid";
             if (viewMode == mode && notify) return;
             viewMode = mode;
-            viewButton.Content = CreatePhosphorIcon(viewMode == "grid" ? "grid" : "list", 14, true);
+            viewButton.Content = CreatePhosphorIcon(viewMode == "grid" ? "grid" : "list", Dip(15), true);
             RebuildItems();
             if (notify)
             {
@@ -1376,7 +1555,20 @@ namespace PivkeyOrganizer
             // 桌面层挂载（DeskBox 策略，WidgetLayer 带回读验证）：优先挂 SHELLDLL_DefView
             // （图标视图之上、普通窗口之下，Win+D 不收走），桌面未就绪时回退 Progman 并自动升级。
             WidgetLayer.Attach(hwnd);
+            RefreshDpiScale();
             UpdateWindowRegion();   // 首次显示前裁出圆角轮廓（后续由 WM_SIZE 保持同步）
+        }
+
+        // 当前窗口所在显示器的 DPI 缩放（GetDpiForWindow/96），用于把图标解码到正确的物理像素档位
+        private void RefreshDpiScale()
+        {
+            double scale = 1.0;
+            if (hwnd != IntPtr.Zero)
+            {
+                try { scale = GetDpiForWindow(hwnd) / 96.0; }
+                catch { scale = 1.0; }
+            }
+            dpiScale = scale > 0 ? scale : 1.0;
         }
 
         // 宿主需要的原生句柄（TransferIntoCategory 用作 IFileOperation 的 owner 窗口等）
@@ -1414,8 +1606,8 @@ namespace PivkeyOrganizer
                 SetItemsCache(false);
             }
             // WPF 会把补间中的 Width（从 52 起步）强制钳到 230，宽度动画变成"先跳 230 再补 62px"。
-            MinWidth = ((collapsed && capsuleMode) || (capsuleMode && layoutAnimating)) ? CapsuleSize : 230;
-            double nextWidth = (collapsed && capsuleMode) ? CapsuleSize : Math.Max(MinWidth, Math.Min(workArea.Width, width));
+            MinWidth = ((collapsed && capsuleMode) || (capsuleMode && layoutAnimating)) ? ScaledCapsuleSize() : Dip(230);
+            double nextWidth = (collapsed && capsuleMode) ? ScaledCapsuleSize() : Math.Max(MinWidth, Math.Min(workArea.Width, width));
             expandedWidth = Math.Max(MinWidth, Math.Min(workArea.Width, width));   // 记录展开宽度（胶囊补间目标）
             double nextExpandedHeight = Math.Max(150, Math.Min(workArea.Height, height));
             double nextHeight = collapsed ? TargetCollapsedHeight() : nextExpandedHeight;
@@ -1438,6 +1630,7 @@ namespace PivkeyOrganizer
                 Math.Abs(Left - nextLeft) > 0.75 || Math.Abs(Top - nextTop) > 0.75;
             bool sizeChanged = Math.Abs(Width - nextWidth) > 0.75 || Math.Abs(Height - nextHeight) > 0.75;
             bool geometryChanged = positionChanged || sizeChanged;
+            UpdateNarrowHeaderState(nextWidth);   // 窄宽度标题条：< 200 DIP 时只留标题 + 折叠 + 菜单按钮
             if (!geometryChanged) return;
             // 纯位置变化（Manager 避让推挤/还原）：滑动过去；拖拽/缩放/手势/补间期间直接归位
             if (positionChanged && !sizeChanged && !layoutAnimating && !moving && !resizing && !capsuleGestureActive && !Double.IsNaN(Left))
@@ -1469,6 +1662,11 @@ namespace PivkeyOrganizer
             accent = ParseColor(String.IsNullOrWhiteSpace(value.color) ? "#e98687" : value.color);
             themeAccent = ParseColor(String.IsNullOrWhiteSpace(value.themeAccent) ? "#e98687" : value.themeAccent);
             glassOpacity = value.glassOpacity >= 0 && value.glassOpacity <= 100 ? (int)Math.Round(value.glassOpacity) : 88;
+            // 界面缩放：越界（含旧前端未同步时的 0）一律回落到 100，避免字号被压成 0
+            double nextUiScale = value.uiScale >= 80 && value.uiScale <= 130 ? value.uiScale : 100;
+            bool uiScaleChanged = Math.Abs(nextUiScale - uiScale) > 0.01;
+            uiScale = nextUiScale;
+            if (uiScaleChanged) ApplyScaleMetrics();
             if (!String.IsNullOrWhiteSpace(value.material)) materialMode = value.material;
             darkTheme = value.theme == "dark";
             paperSurface = String.IsNullOrWhiteSpace(value.headerSurface)
@@ -1478,7 +1676,7 @@ namespace PivkeyOrganizer
             itemSize = value.itemSize >= 44 && value.itemSize <= 112 ? value.itemSize : compact ? 60 : 76;
             iconSize = value.iconSize >= 24 && value.iconSize <= 72 ? value.iconSize : compact ? 40 : 54;
             itemGap = value.itemGap >= 0 && value.itemGap <= 24 ? value.itemGap : 6;
-            labelSize = value.labelSize >= 8 && value.labelSize <= 14 ? value.labelSize : compact ? 9 : 10;
+            labelSize = value.labelSize >= 8 && value.labelSize <= 18 ? value.labelSize : (compact ? 11 : 12);
             itemAlignment = value.itemAlignment == "center" || value.itemAlignment == "right" ? value.itemAlignment : "left";
             itemColumns = Math.Max(0, Math.Min(8, value.itemColumns));
             showLabels = value.showLabels;
@@ -1502,14 +1700,14 @@ namespace PivkeyOrganizer
             }
             viewMode = incomingViewMode == "list" ? "list" : "grid";
             sortMode = incomingSortMode == "modified" || incomingSortMode == "size" ? incomingSortMode : "name";
-            viewButton.Content = CreatePhosphorIcon(viewMode == "grid" ? "grid" : "list", 14, true);
+            viewButton.Content = CreatePhosphorIcon(viewMode == "grid" ? "grid" : "list", Dip(15), true);
             // 胶囊模式（全局开关）与分类图标：同 JSON 属性名直传；图标变化时重渲染胶囊
             bool previousCapsuleMode = capsuleMode;
             capsuleMode = value.capsuleMode;
             string nextCategoryIcon = value.categoryIcon == null ? "folder" : value.categoryIcon;
             bool categoryIconChanged = !String.Equals(categoryIcon, nextCategoryIcon, StringComparison.Ordinal);
             categoryIcon = nextCategoryIcon;
-            if (categoryIconChanged || iconShape.Data == null) UpdateCapsuleIcon();
+            if (categoryIconChanged || iconShape.Data == null || (uiScaleChanged && categoryIcon.StartsWith("data:", StringComparison.Ordinal))) UpdateCapsuleIcon();
 
             bool nextCollapsed = value.collapsed;
             if (nextCollapsed != collapsed || capsuleMode != previousCapsuleMode)
@@ -1518,7 +1716,7 @@ namespace PivkeyOrganizer
                 // 胶囊模式补间中（折叠/展开）内容与标题条都保持隐藏：窗口宽高正在过渡，
                 // 提前显示会挤压变形；补间结束由 RefreshCapsuleVisibility 统一恢复
                 itemsPanel.Visibility = (collapsed || (capsuleMode && layoutAnimating)) ? Visibility.Collapsed : Visibility.Visible;
-                collapseButton.Content = CreatePhosphorIcon(collapsed ? "chevron-right" : "chevron-down", 14, true);
+                collapseButton.Content = CreatePhosphorIcon(collapsed ? "chevron-right" : "chevron-down", Dip(15), true);
                 // 胶囊模式折叠：无条件保持胶囊可见，避免补间中断或计时器挂起导致窗口隐形消失
                 capsuleView.Visibility = (collapsed && capsuleMode) ? Visibility.Visible : Visibility.Collapsed;
                 header.Visibility = (collapsed && capsuleMode || (capsuleMode && layoutAnimating)) ? Visibility.Collapsed : Visibility.Visible;
@@ -1581,19 +1779,32 @@ namespace PivkeyOrganizer
             RefreshCapsuleVisibility();
         }
 
-        // 后台预解码新增项目图标（复用静态缓存）：避免首屏 UI 线程逐个 base64 解码卡顿造成的闪烁
+        // 后台预解码新增项目图标（复用静态缓存）：避免首屏 UI 线程逐个 base64 解码卡顿造成的闪烁。
+        // 去重（缓存已有或已在排队）+ 并发上限 4（后台任务里同步 Wait，C# 5 下不用 async/await）
         private void WarmDecodeIcons(PanelItemData[] items)
         {
             if (items == null) return;
+            int targetPx = IconTargetPx();   // 同一次批量用同一个像素档位，避免逐项重复解析
             foreach (PanelItemData data in items)
             {
                 if (data == null || String.IsNullOrWhiteSpace(data.iconUrl)) continue;
                 string iconUrl = data.iconUrl;
+                string key = targetPx + "|" + iconUrl;
                 lock (decodedImageCacheLock)
                 {
-                    if (decodedImageCache.ContainsKey(iconUrl)) continue;
+                    if (decodedImageCache.ContainsKey(key)) continue;
+                    if (!pendingIconDecodes.Add(key)) continue;   // 已在排队：跳过重复任务
                 }
-                System.Threading.Tasks.Task.Run(delegate { DecodeImage(iconUrl); });
+                System.Threading.Tasks.Task.Run(delegate
+                {
+                    iconDecodeSlots.WaitOne();
+                    try { DecodeImage(iconUrl, targetPx); }
+                    finally
+                    {
+                        iconDecodeSlots.Release();
+                        lock (decodedImageCacheLock) { pendingIconDecodes.Remove(key); }
+                    }
+                });
             }
         }
         // 新文件到达：面板边框呼吸光晕一次（0.85 淡出到 0，EaseOut），完成后隐藏归位
@@ -1681,7 +1892,7 @@ namespace PivkeyOrganizer
             return fileName == null ? null : Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "assets", "characters", fileName);
         }
 
-        private static ImageSource DecodeCharacterImage(string name)
+        private static ImageSource DecodeCharacterImage(string name, int targetPx)
         {
             string path = CharacterIconPath(name);
             if (String.IsNullOrWhiteSpace(path) || !File.Exists(path)) return null;
@@ -1692,7 +1903,7 @@ namespace PivkeyOrganizer
                 {
                     image.BeginInit();
                     image.CacheOption = BitmapCacheOption.OnLoad;
-                    image.DecodePixelWidth = 128;
+                    image.DecodePixelWidth = targetPx;   // 胶囊图标跟随界面缩放/DPI 的像素档位
                     image.StreamSource = stream;
                     image.EndInit();
                 }
@@ -1715,7 +1926,7 @@ namespace PivkeyOrganizer
         // 渲染角色姿势或 data: 自定义图片；没有图片时回退到内置 Phosphor 字形（未知名回退 folder）
         private void UpdateCapsuleIcon()
         {
-            ImageSource characterSource = DecodeCharacterImage(categoryIcon);
+            ImageSource characterSource = DecodeCharacterImage(categoryIcon, IconTargetPx());
             if (characterSource != null)
             {
                 capsuleIconSource = characterSource;
@@ -1727,7 +1938,7 @@ namespace PivkeyOrganizer
             }
             if (categoryIcon.StartsWith("data:", StringComparison.Ordinal))
             {
-                ImageSource source = DecodeImage(categoryIcon);
+                ImageSource source = DecodeImage(categoryIcon, IconTargetPx());
                 if (source != null)
                 {
                     capsuleIconSource = source;
@@ -1848,6 +2059,7 @@ namespace PivkeyOrganizer
             signature.Append(value.iconSize).Append('|');
             signature.Append(value.itemGap).Append('|');
             signature.Append(value.labelSize).Append('|');
+            signature.Append(value.uiScale).Append('|');
             signature.Append(value.itemAlignment).Append('|');
             signature.Append(value.itemColumns).Append('|');
             signature.Append(value.showLabels ? '1' : '0').Append('|');
@@ -1916,12 +2128,13 @@ namespace PivkeyOrganizer
             bool readOnly = data.ContainsKey("readOnly") && Convert.ToBoolean(data["readOnly"]);
             bool list = viewMode == "list";
             double currentIconSize = list ? Math.Min(iconSize, 56) : iconSize;
-            double iconSurfaceSize = currentIconSize + (list ? 2 : 4);
-            double labelLineHeight = list ? Math.Max(14, labelSize * 1.45) : Math.Max(12, labelSize * 1.35);
+            double iconSurfaceSize = currentIconSize + Dip(list ? 2 : 4);
+            // 行高跟字号一起缩放，保证两行标签的 MaxHeight 不会把放大后的文字裁掉
+            double labelLineHeight = Dip(list ? Math.Max(14, labelSize * 1.45) : Math.Max(12, labelSize * 1.35));
             bool labelRight = !list && labelPosition == "right";
             double itemHeight = list
-                ? Math.Max(46, iconSurfaceSize + 8)
-                : labelRight ? Math.Max(iconSurfaceSize + 12, labelLineHeight + 12) : iconSurfaceSize + (showLabels ? 4 + labelLineHeight * 2 : 0) + 12;
+                ? Math.Max(Dip(46), iconSurfaceSize + Dip(8))
+                : labelRight ? Math.Max(iconSurfaceSize + Dip(12), labelLineHeight + Dip(12)) : iconSurfaceSize + (showLabels ? Dip(4) + labelLineHeight * 2 : 0) + Dip(12);
             bool selected = selectedPaths.Contains(path);
             VerticalAlignment contentVAlign = (list || labelRight) ? VerticalAlignment.Center : VerticalAlignment.Top;
             HorizontalAlignment contentAlignment = list
@@ -1959,7 +2172,7 @@ namespace PivkeyOrganizer
                 HorizontalAlignment = contentAlignment,
                 Margin = list ? new Thickness(0, 0, 9, 0) : labelRight ? new Thickness(0) : new Thickness(0)
             };
-            ImageSource decoded = DecodeImage(iconUrl);
+            ImageSource decoded = DecodeImage(iconUrl, IconTargetPx());
             if (decoded != null)
             {
                 Image image = new Image { Width = currentIconSize, Height = currentIconSize, Stretch = Stretch.Uniform };
@@ -1976,13 +2189,13 @@ namespace PivkeyOrganizer
             stack.Children.Add(iconSurface);
             string displayName = showExtensions ? Path.GetFileName(Convert.ToString(data["name"])) : Path.GetFileNameWithoutExtension(Convert.ToString(data["name"]));
             Color labelColor = darkTheme ? Color.FromRgb(245, 245, 245) : Color.FromRgb(26, 26, 26);
-            double labelMaxWidth = list ? Math.Max(60, itemWidth - 58) : labelRight ? Math.Max(44, itemWidth - iconSurfaceSize - 14) : itemWidth - 4;
+            double labelMaxWidth = list ? Math.Max(Dip(60), itemWidth - Dip(58)) : labelRight ? Math.Max(Dip(44), itemWidth - iconSurfaceSize - Dip(14)) : itemWidth - Dip(4);
             double labelMaxHeight = list || labelRight ? labelLineHeight * (labelRight ? 2 : 1) + 1 : labelLineHeight * 2 + 1;
-            Thickness labelMargin = list ? new Thickness(0) : labelRight ? new Thickness(8, 0, 0, 0) : new Thickness(0, 4, 0, 0);
+            Thickness labelMargin = list ? new Thickness(0) : labelRight ? new Thickness(Dip(8), 0, 0, 0) : new Thickness(0, Dip(4), 0, 0);
             TextBlock label = new TextBlock
             {
                 Text = displayName,
-                FontSize = list ? Math.Max(10, labelSize + 1.5) : labelSize,
+                FontSize = list ? Dip(Math.Max(10, labelSize + 1.5)) : Dip(labelSize),
                 FontWeight = FontWeights.Normal,
                 FontFamily = ItemLabelFont,
                 TextAlignment = list ? TextAlignment.Left : itemAlignment == "right" ? TextAlignment.Right : itemAlignment == "center" ? TextAlignment.Center : TextAlignment.Left,
@@ -2146,7 +2359,7 @@ namespace PivkeyOrganizer
 
         private void RefreshItemLayoutForSize()
         {
-            double availableWidth = Math.Max(1, ActualWidth - 20);
+            double availableWidth = Math.Max(1, ActualWidth - Dip(20));
             int nextColumns = ComputeItemColumns(availableWidth, CountVisibleItems());
             if (nextColumns != renderedColumns)
             {
@@ -2161,7 +2374,7 @@ namespace PivkeyOrganizer
             bool list = viewMode == "list";
             itemsPanel.HorizontalAlignment = list ? HorizontalAlignment.Left : HorizontalAlignment.Center;
             itemsPanel.VerticalAlignment = VerticalAlignment.Top;
-            double availableWidth = Math.Max(1, ActualWidth - 20);
+            double availableWidth = Math.Max(1, ActualWidth - Dip(20));
             scroll.HorizontalContentAlignment = list ? HorizontalAlignment.Left : HorizontalAlignment.Center;
             double panelWidth = list
                 ? availableWidth
@@ -2189,13 +2402,13 @@ namespace PivkeyOrganizer
                     TextBlock label = stack.Children[1] as TextBlock;
                     if (label == null) continue;
                     bool labelRight = !list && labelPosition == "right";
-                    double labelLineHeight = list ? Math.Max(14, labelSize * 1.45) : Math.Max(12, labelSize * 1.35);
-                    double iconSurfaceSize = (list ? Math.Min(iconSize, 56) : iconSize) + (list ? 2 : 4);
+                    double labelLineHeight = Dip(list ? Math.Max(14, labelSize * 1.45) : Math.Max(12, labelSize * 1.35));
+                    double iconSurfaceSize = (list ? Math.Min(iconSize, 56) : iconSize) + Dip(list ? 2 : 4);
                     label.MaxWidth = list
-                        ? Math.Max(60, width - 58)
+                        ? Math.Max(Dip(60), width - Dip(58))
                         : labelRight
-                            ? Math.Max(44, width - iconSurfaceSize - 14)
-                            : width - 4;
+                            ? Math.Max(Dip(44), width - iconSurfaceSize - Dip(14))
+                            : width - Dip(4);
                     label.MaxHeight = list || labelRight ? labelLineHeight * (labelRight ? 2 : 1) + 1 : labelLineHeight * 2 + 1;
                 }
             }
@@ -2376,7 +2589,7 @@ namespace PivkeyOrganizer
 
             Rect workArea = GetVirtualScreenBounds();
             double clampedLeft = Math.Max(workArea.Left - ActualWidth + 40, Math.Min(workArea.Right - 40, nextLeft));
-            double clampedTop = Math.Max(workArea.Top, Math.Min(workArea.Bottom - HeaderBarHeight, nextTop));
+            double clampedTop = Math.Max(workArea.Top, Math.Min(workArea.Bottom - ScaledHeaderBarHeight(), nextTop));
 
             List<Rect> obstacles = host.GetPanelBounds(panelId);
             Rect requested = new Rect(clampedLeft, clampedTop, ActualWidth, ActualHeight);
@@ -2418,7 +2631,7 @@ namespace PivkeyOrganizer
 
         private void BeginRename()
         {
-            TextBox editor = new TextBox { Text = categoryName, Width = Math.Max(100, title.ActualWidth), Height = 22, VerticalContentAlignment = VerticalAlignment.Center, FontSize = 12 };
+            TextBox editor = new TextBox { Text = categoryName, Width = Math.Max(100, title.ActualWidth), Height = Dip(22), VerticalContentAlignment = VerticalAlignment.Center, FontSize = Dip(13) };
             Grid parent = title.Parent as Grid;
             if (parent == null) return;
             int column = Grid.GetColumn(title);
@@ -2525,7 +2738,7 @@ namespace PivkeyOrganizer
             double nextLeft = capsuleStartLeft + dx;
             double nextTop = capsuleStartTop + dy;
             double clampedLeft = Math.Max(workArea.Left - ActualWidth + 20, Math.Min(workArea.Right - 20, nextLeft));
-            double clampedTop = Math.Max(workArea.Top, Math.Min(workArea.Bottom - CapsuleSize, nextTop));
+            double clampedTop = Math.Max(workArea.Top, Math.Min(workArea.Bottom - ScaledCapsuleSize(), nextTop));
 
             List<Rect> obstacles = host.GetPanelBounds(panelId);
             Rect requested = new Rect(clampedLeft, clampedTop, ActualWidth, ActualHeight);
@@ -3117,6 +3330,7 @@ namespace PivkeyOrganizer
         private void RestoreSyncedBounds()
         {
             if (hwnd == IntPtr.Zero || !hasSyncedBounds) return;
+            RefreshDpiScale();   // 跨屏 DPI 变化：刷新图标解码档位（下一次投递/重建时生效）
             try { UpdateBounds(syncedX, syncedY, syncedWidth, syncedHeight, pinned); }
             catch { }
         }
@@ -3476,15 +3690,17 @@ namespace PivkeyOrganizer
             return (long)bitmap.PixelWidth * bitmap.PixelHeight * 4;
         }
 
-        private static ImageSource DecodeImage(string value)
+        private static ImageSource DecodeImage(string value, int targetPx)
         {
             try
             {
                 if (String.IsNullOrWhiteSpace(value)) return null;
+                // 缓存键包含像素档位：DPI/界面缩放变化后按新档位重新解码，旧档位由 LRU 自然淘汰
+                string cacheKey = targetPx + "|" + value;
                 lock (decodedImageCacheLock)
                 {
                     ImageSource cached;
-                    if (decodedImageCache.TryGetValue(value, out cached)) return cached;
+                    if (decodedImageCache.TryGetValue(cacheKey, out cached)) return cached;
                 }
                 int comma = value.IndexOf(',');
                 byte[] bytes = Convert.FromBase64String(comma >= 0 ? value.Substring(comma + 1) : value);
@@ -3493,7 +3709,7 @@ namespace PivkeyOrganizer
                 {
                     image.BeginInit();
                     image.CacheOption = BitmapCacheOption.OnLoad;
-                    image.DecodePixelWidth = 128; // 图标显示最大 ~72px，128 足够 4K 缩放清晰；避免 256/512px 大图全分辨率解码爆内存
+                    image.DecodePixelWidth = targetPx; // 按调用方算出的物理像素档位解码（图标显示尺寸 × 界面缩放 × DPI），避免大图全分辨率解码爆内存
                     image.StreamSource = stream;
                     image.EndInit();
                     image.Freeze();
@@ -3502,23 +3718,26 @@ namespace PivkeyOrganizer
                 lock (decodedImageCacheLock)
                 {
                     ImageSource replaced;
-                    if (decodedImageCache.TryGetValue(value, out replaced))
+                    if (decodedImageCache.TryGetValue(cacheKey, out replaced))
                     {
                         // 同 key 覆盖：先扣旧条目字节并从字典移除（队列中旧位置自然失效，逐出时跳过）
                         decodedImageCacheBytes -= EstimateImageBytes(replaced);
-                        decodedImageCache.Remove(value);
+                        decodedImageCache.Remove(cacheKey);
                     }
-                    decodedImageCache[value] = image;
+                    decodedImageCache[cacheKey] = image;
                     decodedImageCacheBytes += entryBytes;
-                    decodedImageCacheOrder.Enqueue(value);
-                    // 超出 32MB 上限时按插入序逐出，直到低于 24MB 低水位（滞回，避免边界反复抖动）
-                    while (decodedImageCacheBytes > MaxDecodedImageCacheBytes && decodedImageCacheOrder.Count > 0)
+                    decodedImageCacheOrder.Enqueue(cacheKey);
+                    // 逐出：仅当超出 32MB 上限时启动，一次删到 24MB 低水位（滞回，避免边界反复逐出）
+                    if (decodedImageCacheBytes > MaxDecodedImageCacheBytes)
                     {
-                        string first = decodedImageCacheOrder.Dequeue();
-                        ImageSource stale;
-                        if (!decodedImageCache.TryGetValue(first, out stale)) continue; // 已被覆盖/逐出，跳过失效位置
-                        decodedImageCache.Remove(first);
-                        decodedImageCacheBytes -= EstimateImageBytes(stale);
+                        while (decodedImageCacheBytes > MinDecodedImageCacheBytes && decodedImageCacheOrder.Count > 0)
+                        {
+                            string first = decodedImageCacheOrder.Dequeue();
+                            ImageSource stale;
+                            if (!decodedImageCache.TryGetValue(first, out stale)) continue; // 已被覆盖/逐出，跳过失效位置
+                            decodedImageCache.Remove(first);
+                            decodedImageCacheBytes -= EstimateImageBytes(stale);
+                        }
                     }
                 }
                 return image;

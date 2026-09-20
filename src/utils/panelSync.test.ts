@@ -19,6 +19,12 @@ describe('panel synchronization keys', () => {
     expect(buildPanelSyncKey([base])).not.toBe(buildPanelSyncKey([{ ...base, capsuleMode: true }]));
   });
 
+  it('changes when the ui scale changes so the native panel is re-pushed', () => {
+    const base = { id: 'documents', uiScale: 100, items: [] };
+    expect(buildPanelSyncKey([base])).not.toBe(buildPanelSyncKey([{ ...base, uiScale: 130 }]));
+    expect(buildPanelSyncKey([base])).toBe(buildPanelSyncKey([{ ...base, uiScale: 100 }]));
+  });
+
   it('uses a compact deterministic icon hash', () => {
     expect(hashPanelValue('same')).toBe(hashPanelValue('same'));
     expect(hashPanelValue('same')).not.toBe(hashPanelValue('diff'));

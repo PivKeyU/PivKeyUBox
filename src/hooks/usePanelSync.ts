@@ -64,6 +64,7 @@ export function usePanelSync(options: UsePanelSyncOptions) {
           ? panelHeaderSurface
           : (magic !== null ? toHexColor(resolveSurfaceRgb('custom', magic, effectiveTheme, preferences.customSurfaceColor)) : panelHeaderSurface),
         glassOpacity: preferences.glassOpacity,
+        uiScale: preferences.uiScale,
         theme: effectiveTheme,
         compact: preferences.compactView,
         capsuleMode: preferences.capsuleMode,
@@ -137,7 +138,7 @@ export function usePanelSync(options: UsePanelSyncOptions) {
   }, [
     collapsed, itemLayouts, itemsByCategory, native, pinned, positions,
     preferences.categories, preferences.colorScheme, preferences.compactView, preferences.capsuleMode,
-    preferences.customColor, preferences.glassOpacity, preferences.magicColor, preferences.theme,
+    preferences.customColor, preferences.glassOpacity, preferences.uiScale, preferences.magicColor, preferences.theme,
     preferences.organizeMode, sizes, sortModes, viewModes,
   ]);
 }

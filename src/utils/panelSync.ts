@@ -19,7 +19,7 @@ export function buildPanelSyncKey(panels: Array<Record<string, unknown>>): strin
       hashPanelValue(item.iconUrl),
     ].join(':')).join(',');
     return [
-      panel.id, panel.name, panel.color, panel.themeAccent, panel.headerSurface, panel.glassOpacity, panel.theme, panel.capsuleMode,
+      panel.id, panel.name, panel.color, panel.themeAccent, panel.headerSurface, panel.glassOpacity, panel.uiScale, panel.theme, panel.capsuleMode,
       panel.compact, panel.viewMode, panel.sortMode, panel.itemSize, panel.iconSize, panel.itemGap, panel.itemAlignment,
       panel.itemColumns, panel.showLabels, panel.labelSize, panel.x, panel.y, panel.width, panel.height, panel.pinned, panel.collapsed,
       itemKey,

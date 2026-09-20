@@ -202,6 +202,13 @@ export function SettingsModal({ preferences, itemLayouts, defaultItemLayout, ada
   const rgb = rgbFromHex(preferences.customColor);
   const surfaceRgb = rgbFromHex(preferences.customSurfaceColor || '#ffffff');
   const itemLayout = { ...defaultItemLayout, ...itemLayouts[selectedCategory] };
+  const layoutPreset = ((): 'clear' | 'standard' | 'compact' | '' => {
+    const { labelSize, iconSize, itemSize, gap } = itemLayout;
+    if (labelSize === 14 && iconSize === 64 && itemSize === 92 && gap === 10) return 'clear';
+    if (labelSize === 12 && iconSize === 54 && itemSize === 76 && gap === 6) return 'standard';
+    if (labelSize === 10 && iconSize === 44 && itemSize === 62 && gap === 4) return 'compact';
+    return '';
+  })();
   const [previewLabelSize, setPreviewLabelSize] = useState(itemLayout.labelSize);
   const setItemLayout = <K extends keyof PanelItemLayout>(key: K, value: PanelItemLayout[K]) => onItemLayoutChange(selectedCategory, { ...itemLayout, [key]: value });
   const setRgb = (index: number, value: number) => {
@@ -518,10 +525,15 @@ export function SettingsModal({ preferences, itemLayouts, defaultItemLayout, ada
                     <RangeField label="项目宽度" min={44} max={112} step={1} value={itemLayout.itemSize} display={(value) => `${value}px`} onChange={(value) => setItemLayout('itemSize', value)} />
                     <RangeField label="图标尺寸" min={24} max={72} step={1} value={itemLayout.iconSize} display={(value) => `${value}px`} onChange={(value) => setItemLayout('iconSize', value)} />
                     <RangeField label="项目间距" min={0} max={24} step={1} value={itemLayout.gap} display={(value) => `${value}px`} onChange={(value) => setItemLayout('gap', value)} />
-                    <RangeField label="名称字号" min={8} max={14} step={0.5} value={itemLayout.labelSize} display={(value) => `${value}px`} onPreview={setPreviewLabelSize} onChange={(value) => setItemLayout('labelSize', value)} />
+                    <div className="layout-row"><span>文字清晰度</span><div className="alignment-picker">
+                      <button type="button" className={layoutPreset === 'clear' ? 'is-active' : ''} onClick={() => onItemLayoutChange(selectedCategory, { ...itemLayout, labelSize: 14, iconSize: 64, itemSize: 92, gap: 10 })}>清晰</button>
+                      <button type="button" className={layoutPreset === 'standard' ? 'is-active' : ''} onClick={() => onItemLayoutChange(selectedCategory, { ...itemLayout, labelSize: 12, iconSize: 54, itemSize: 76, gap: 6 })}>标准</button>
+                      <button type="button" className={layoutPreset === 'compact' ? 'is-active' : ''} onClick={() => onItemLayoutChange(selectedCategory, { ...itemLayout, labelSize: 10, iconSize: 44, itemSize: 62, gap: 4 })}>紧凑</button>
+                    </div></div>
+                    <RangeField label="名称字号" min={8} max={18} step={0.5} value={itemLayout.labelSize} display={(value) => `${value}px`} onPreview={setPreviewLabelSize} onChange={(value) => setItemLayout('labelSize', value)} />
                   </div>
                   <div className="font-preview-card">
-                    <div className="font-preview-card__heading"><div><strong>收纳文字预览</strong><small>拖动“名称字号”即可实时查看</small></div><span>{previewLabelSize}px</span></div>
+                    <div className="font-preview-card__heading"><div><strong>收纳文字预览</strong><small>拖动“名称字号”或点击上方预设即可实时查看</small></div><span>{previewLabelSize}px</span></div>
                     <div className="font-preview-card__stage">
                       <div className="font-preview-card__sample"><img src={characterIconSource('chiikawa-carry-folder')} alt="" aria-hidden="true" /><span style={{ fontSize: `${previewLabelSize}px` }}>项目文件夹</span></div>
                       <div className="font-preview-card__sample"><img src={characterIconSource('chiikawa-wave')} alt="" aria-hidden="true" /><span style={{ fontSize: `${previewLabelSize}px` }}>快捷方式</span></div>
