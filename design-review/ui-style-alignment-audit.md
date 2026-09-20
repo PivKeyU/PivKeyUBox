@@ -4,6 +4,7 @@
 - 审查范围：`src/styles.css`、`tokens.css`、`src/components/*`、`native/*.cs`、`design-system/pivkey-organizer/*`、`design-review/*`
 - 当前验证状态：`npm test` 36 passed；`dist/` 为 2026-09-17 19:53 产物（构建可用）
 - 结论口径：本报告只做审查与定位，未修改任何代码
+- **后续状态（2026-09-20）**：`24a3e24` / `4cfc13e` 已完成一批 UI 清晰度修复（界面缩放生效、图标像素档位、小工作区布局、文件名标签默认字号 10→12、设置页三档预设）。本报告中与之冲突的段落已在原位加 **> 2026-09-20** 标注；其余未标注的条目仍按审查日的现状有效。当前 `npm test` 为 6 文件 / 45 用例全通过。
 
 ---
 
@@ -25,8 +26,7 @@
 
 | 维度 | 实测 | 说明 |
 |---|---|---|
-| CSS 总行数 | 4786 行（122 KB 产物） | 由 8 轮改版叠加而成，含 2 个重复编号的"§14" |
-| 字号取值 | **17 个**（10 / 10.5 / 11 / 11.5 / 12 / 12.5 / 13 / 13.5 / 14 / 16 / 17 / 18 / 20 + 4 个 clamp） | 其中 5 档（11–13px）挤在 2px 区间 |
+| CSS 总行数 | 4786 行（122 KB 产物） | 由 8 轮改版叠加而成，含 2 个重复编号的"§14" || 字号取值 | **17 个**（10 / 10.5 / 11 / 11.5 / 12 / 12.5 / 13 / 13.5 / 14 / 16 / 17 / 18 / 20 + 4 个 clamp） | 其中 5 档（11–13px）挤在 2px 区间 |
 | 走令牌的字号 | **0 / 145** | `font-size` 全部为字面量 |
 | 圆角取值 | **24 个**（3–20px + 999px + 50%） | 走令牌 27 / 159 处（`--radius-sm/md/lg`） |
 | 硬编码颜色 | **175 个 hex**（71 种） | 其中 `#3478f6` 出现 **64 次**，且 64/64 都是 `var(--theme-accent, #3478f6)` 的兜底值 |
@@ -38,6 +38,7 @@
 | 无消费者的选择器 | 7 个（如 `.settings-brand-card`、`.rule-editor__pattern`、`.settings-note--success`） | 另有 `.compact-view` 在 `App.tsx:559` 上类但 CSS 里没有任何规则 |
 | 打包资产 | 6 张 **1254×1254 / 约 1 MB** 的角色 PNG = 6.2 MB | `dist/assets/` 实测；实际显示尺寸 36–46 px |
 | 仓库内死资产 | `src/assets/fonts/` **79 MB** 的 Maple Mono TTF | Web 侧已不再引用，原生侧找不到它们 |
+> **2026-09-20 补充**：本表描述的是 `src/styles.css`（设置页）的现状，**不受** `24a3e24` 影响——那次改动全部落在原生层与状态层，没有动 CSS 与本表的任何数字。唯一交叉的是第 4 节列出的 `UiScale` 未进 `PanelSyncData`（已修，见 §四.10 标注）。
 
 ---
 
@@ -119,6 +120,8 @@
 
 17 个取值里，`11 / 11.5 / 12 / 12.5 / 13` 五档集中在 2px 内，且全部是字面量（145 处 `font-size`，0 处走令牌）。用户肉眼分辨不出 11.5 与 12 的差别，但它意味着任何一次"整体调大一号"的改动都要在 145 个点上手工判断该不该动。原生层同样存在这个问题但程度轻：辅助窗口用 18/14/12/11/10（`QuickSearchWindow.cs:50`–`:163`），新建分类对话框全部平铺 12（`CategoryDialog.cs:48`–`:98`），桌面主界面用 13/12.5/11/10.5（`PanelWindow.cs:252`、`265`、`318`）——同一产品三套比例。
 
+> **2026-09-20 部分推翻（`24a3e24`）**：面板层已不再是一套固定字面量 —— 原生面板的标题 14 / 计数 11 / 工具图标 15 / 重命名输入 13 / 菜单项 13 / 子菜单 12.5 均改为 `Dip(基础值)`，随 uiScale（80–130）缩放；文件名标签默认 10 → **12**、范围 [8,14] → **[8,18]**（用户已存的自定义值原样保留）。但**本节的根问题仍然成立**：这些值仍**没有**走 CSS 令牌体系（原生层不存在令牌），设置页 `styles.css` 的 145 处 `font-size` 字面量也未被本次提交触及。字号基准表见 [`../design-system/pivkey-organizer/UI-SCALING.md`](../design-system/pivkey-organizer/UI-SCALING.md) §三。
+
 ### 8. 原生菜单三套数值
 
 | surface | 行高 | 深色底 | 深色描边 | 分隔线 |
@@ -145,10 +148,16 @@
 
 ### 10. 遗留兜底色与中性色分裂
 
+> **2026-09-20 状态变更**：本节的 `UiScale` 条目已修复；其余条目（兜底暖棕 `#8C7350` / 暖粉 `#e98687`、深色表面 `(34,33,30)` vs `(31,31,31)`、菜单勾选色硬编码）在本次提交中**未触动**，仍然有效。
+
 - 暖棕 `#8C7350` 仍作为兜底强调色留在 `PanelWindow.cs:100`、`:101`、`:3497`、`CategoryDialog.cs:193`，另一处兜底是暖粉 `#e98687`（`PanelWindow.cs:1460-1461`），而应用默认强调色是 `#3478f6`（`Manager.cs:335`）——解析失败时会画出暖棕/暖粉对蓝色 UI。
 - 深色表面有两个值：`(34,33,30)`（`Manager.cs:1870`，被面板与便签消费）与 `(31,31,31)`（`PanelWindow.cs:3042`、`:2949`、`NoteWindow.cs:861`），而注释声明中性色是 `#1F1F1F`（`:2918`）。折叠胶囊与展开面板因此落在不同的深色上。
 - 菜单勾选色硬编码 `#3478f6`（`PanelWindow.cs:867`），在已支持强调色的界面里唯一不跟随。
 - `UiScale`（80–130，`Manager.cs:190`、校验 `:1105`、写入 `:897`）没有进入 `PanelSyncData`（`PivkeyHost.cs:45-80`），缩放只作用于 Web 层，原生窗口不跟随。
+
+> **2026-09-20 已修复（`24a3e24`）**：`PanelSyncData` 已补 `uiScale` 字段， `Manager.BuildPanels()` 已赋值、`BuildPanelKey()` 已把 `uiScale` 计入签名，前端 payload / `buildPanelSyncKey` / `usePanelSync` 的 effect 依赖也补齐。原生 `PanelWindow` 新增 `Dip(x) = x * uiScale / 100`（只乘 `uiScale`，**不乘** 系统 DPI —— WPF 已按 DPI 缩放 DIP），字号 / 标题条高 / 胶囊边长 / 最小宽高全部走它。
+> 注意本条只涉及**逻辑尺寸**；图标位图另有一套 `ResolveIconPixelSize(logical, uiScale, dpiScale)`（向上取 16 倍数、夹到 [48,256]）。验收数据（1920×1080 @150%）：uiScale 100 → 折叠标题条 30px；uiScale 130 → 39px（30×1.3）；胶囊 56 → 73px。
+> 本节其余条目（兜底暖棕/暖粉、深色表面双值、菜单勾选色）**不在本次修复范围**，仍待处理。完整契约见 [`../design-system/pivkey-organizer/UI-SCALING.md`](../design-system/pivkey-organizer/UI-SCALING.md)。
 
 ---
 
@@ -199,6 +208,8 @@
 - **图标体系**：`@phosphor-icons/react` 覆盖了所有功能性图标，尺寸用法（13/14/15/16/17/18）整体一致，emoji 只出现在便签贴士一处。
 - **构建与测试**：36 个单测通过，`dist/` 产物是当天的。
 
+> **2026-09-20 更新**：原生面板的 Phosphor 尺寸已不再硬编码 —— 标题栏按钮图标统一为 `Dip(15)`（随 uiScale 缩放）；图标位图也从固定 96px 画布改为 `ResolveIconPixelSize` 的像素档位。测试规模为 6 个文件 / 45 个用例。详见 [`../design-system/pivkey-organizer/UI-SCALING.md`](../design-system/pivkey-organizer/UI-SCALING.md)。
+
 ---
 
 ## 七、整改建议（按投入产出排序）
@@ -217,6 +228,8 @@
 1. **把便签页并入设计系统**：删除 `SettingsModal.tsx:517-658` 的 23 处内联样式，改为 `.settings-section` / `.settings-command` / `.preview-row` 等既有类；emoji 换成 Phosphor 图标（`Lightbulb` / `Lightning` / `PushPin`）；`#d97706` 换成令牌。这是当前最集中的风格断裂点。
 2. **给三个辅助窗口接主题**：`CategoryDialog`、`QuickSearchWindow`、`SettingsWindow` 接收 dark/accent 参数（管线照抄 `PivkeyHost.cs:1666` 的 `ApplyThemeVisuals`），设置窗口补 `#1F1F1F` 深色分支。
 3. **修对比度**：把 `--st-muted` / `--chi-subtle` 在 11px 场景下的取值降到 `#6b6b70` 一级（比值可从 3.26 提到约 5.0），或将文字升到 12px。一个令牌可修复十几处。
+
+   > **2026-09-20 部分先行**：`24a3e24` 已把**原生面板**的文件名标签默认字号从 10 提到 12（范围 8–18，用户自定义值保留），并提供设置页「清晰 / 标准 / 紧凑」三档预设（清晰档 = 标签 14 / 图标 64 / 项目 92 / 间距 10）。但这只是面板层的字号提升，**本节针对设置页 `--st-muted` 的对比度修复仍未做**。字体级差的唯一权威说明见 [`../design-system/pivkey-organizer/UI-SCALING.md`](../design-system/pivkey-organizer/UI-SCALING.md)。
 4. **补 `cursor: pointer`** 到 5 个 label 类；把 `styles.css:4213` 的 24% 焦点环改为 ≥40%。
 
 ### 第三步：结构性收敛（1–2 周）
@@ -238,3 +251,5 @@
 - 原生层证据全部来自 `native/*.cs` 的 grep 与定点阅读；`Manager.cs` 经确认不含任何绘制代码（无 `System.Drawing` / `Graphics` / `NotifyIcon` 引用），托盘渲染实际位于 `PivkeyHost.cs`。
 - 资产尺寸由 PNG 头（偏移 16/20）直接读取。
 - 验证命令：`npm test` → 6 个文件 / 36 个用例全部通过。
+
+> **2026-09-20 更新**：`npm test` → 6 个文件 / **45** 个用例全部通过（新增 9 个，覆盖 `uiScale` 同步键敏感性、`uiScale` 默认值 100 与 80–130 夹取、`labelSize` 默认 12 与旧值不被覆盖、新区间 [8,18] 夹取、窄视口右停靠无负 x）。`npm run build`（tsc + vite）与 `scripts/build-windows.ps1`（csc /langversion:5）均通过。

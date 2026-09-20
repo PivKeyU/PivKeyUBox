@@ -6,6 +6,13 @@
 
 ---
 
+## 缩放与清晰度
+
+界面缩放（80–130）、字号基准、图标像素档位与三档预设的**唯一权威说明**见
+[`UI-SCALING.md`](./UI-SCALING.md)。改动字号或图标尺寸前请先读该文档。
+
+---
+
 **Project:** Pivkey Organizer
 **Generated:** 2026-08-18 01:56:49
 **Category:** Productivity Tool

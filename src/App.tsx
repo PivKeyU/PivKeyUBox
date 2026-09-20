@@ -23,7 +23,7 @@ import {
   type ZonePositions,
   type ZoneSizes,
 } from './state/layout';
-import { alignPanelLayout, createPresetLayout, panelLayoutGap } from './utils/panelLayout';
+import { alignPanelLayout, createPresetLayout, panelLayoutGap, panelMinHeight, panelMinWidth } from './utils/panelLayout';
 import { useDesktopScan } from './hooks/useDesktopScan';
 import { usePanelSync } from './hooks/usePanelSync';
 import { useNativeShell } from './hooks/useNativeShell';
@@ -381,8 +381,10 @@ export default function App() {
       setFolderAlignment('manual');
       return;
     }
-    const width = Math.max(800, window.innerWidth / layoutZoom);
-    const height = Math.max(560, window.innerHeight / layoutZoom);
+    // 与原生 Manager.GetLayoutViewport 保持一致：直接采用真实视口，只保留防御性下限，
+    // 避免高缩放 / 小屏下被虚构的 800x560 撑大后再被窗口钳制，产生挤压与重叠。
+    const width = Math.max(panelMinWidth * 2 + 48, window.innerWidth / layoutZoom);
+    const height = Math.max(panelMinHeight, window.innerHeight / layoutZoom);
     const next = createPresetLayout(categories.map((category) => category.id), preset, { width, height, margin: 24, top: 24, bottom: 24, gap: panelLayoutGap });
     setPositions(next.positions);
     setSizes(next.sizes);
@@ -412,8 +414,9 @@ export default function App() {
       setFolderAlignment(alignment);
       return;
     }
-    const width = Math.max(800, window.innerWidth / layoutZoom);
-    const height = Math.max(560, window.innerHeight / layoutZoom);
+    // 同 applyLayoutPreset：不再虚构 800x560 下限，只留防御性下限。
+    const width = Math.max(panelMinWidth * 2 + 48, window.innerWidth / layoutZoom);
+    const height = Math.max(panelMinHeight, window.innerHeight / layoutZoom);
     const next = alignPanelLayout(categories.map((category) => category.id), sizesRef.current, alignment, { width, height, margin: 24, top: 24, bottom: 24, gap: panelLayoutGap });
     setPositions(next.positions);
     setSizes((current) => ({ ...current, ...next.sizes }));
