@@ -5,7 +5,7 @@
   <p>
     <img src="https://img.shields.io/badge/Platform-Windows%2010%2F11-0078D4?logo=windows&logoColor=white" alt="Platform" />
     <a href="#许可证"><img src="https://img.shields.io/badge/License-MIT-3DA639?logo=opensourceinitiative&logoColor=white" alt="License: MIT" /></a>
-    <a href="https://github.com/PivKeyU/PivKeyUBox/releases"><img src="https://img.shields.io/badge/Release-v0.1.0-3478f6?logo=github&logoColor=white" alt="Release" /></a>
+    <a href="https://github.com/PivKeyU/PivKeyUBox/releases"><img src="https://img.shields.io/badge/Release-v0.1.1-3478f6?logo=github&logoColor=white" alt="Release" /></a>
     <img src="https://img.shields.io/badge/.NET%20Framework-4.7.2-512BD4?logo=dotnet&logoColor=white" alt=".NET Framework 4.7.2" />
     <img src="https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black" alt="React 19" />
     <img src="https://img.shields.io/badge/WebView2-Runtime-0078D4" alt="WebView2" />
@@ -142,6 +142,81 @@ PivKeyUBox（中文名「片刻收纳」）把桌面文件收纳盒直接挂载�
 | 鼠标穿透 | `Ctrl + Alt + Q` 全局切换，窗口加上 `WS_EX_TRANSPARENT` 后点击直接穿透到桌面 |
 | 收纳历史 | 最多保留 30 批操作，支持撤销与重做 |
 
+
+---
+
+## 清晰度与界面缩放
+
+> 本节对应 `v0.1.1` 的界面清晰度优化。换算契约的唯一权威说明见 [`design-system/pivkey-organizer/UI-SCALING.md`](design-system/pivkey-organizer/UI-SCALING.md)。
+
+### 界面缩放（80% – 130%）
+
+设置页的「界面缩放」现在会**真正作用于桌面收纳栏**——分区标题、文件名标签、标题条高度与胶囊边长都会同步变化。
+
+此前该滑块只能缩放设置窗口：面板负载由原生 `Manager.BuildPanels()` 构造，而它从未设置 `uiScale` 字段，消费端永远收到 0 并被兜底成 100。
+
+缩放契约分两层，**不可混用**：
+
+| 层 | 换算 | 说明 |
+| --- | --- | --- |
+| 逻辑尺寸（WPF 的 `Width` / `FontSize` 等） | `× uiScale` | WPF 已按系统 DPI 把 DIP 换算成物理像素，**再乘 DPI 就是重复缩放** |
+| 位图像素请求（图标解码） | `× uiScale × dpiScale` | 只有位图需要真实的物理像素数 |
+
+实测（1920×1080 @150% DPI，折叠态标题条）：
+
+| 界面缩放 | 标题条高度 | 胶囊边长 |
+| --- | --- | --- |
+| 80% | 24 px | 45 px |
+| 100% | 30 px | 56 px |
+| 130% | 39 px | 73 px |
+
+### 高清图标按像素档位生成
+
+图标不再是固定尺寸画布，而是按 **「逻辑尺寸 × 界面缩放 × 系统 DPI」向上取 16 的倍数**请求与解码，夹在 `[48, 256]` 之间：
+
+```text
+ResolveIconPixelSize(54 DIP, 100%, 100% DPI) = 64 px
+ResolveIconPixelSize(54 DIP, 100%, 150% DPI) = 96 px
+ResolveIconPixelSize(54 DIP, 130%, 150% DPI) = 112 px
+```
+
+- 图标缓存键包含像素档位，跨屏或改缩放后按新档位重建，旧档位自动淘汰；
+- 磁盘图标缓存加入档位前缀，不同档位互不覆盖；
+- `96 px` 档位下的绘制参数与旧实现完全一致，**升级无视觉回归**。
+
+### 小工作区布局
+
+移除布局计算里虚构的 `800 × 560` 视口下限。高缩放或小屏下真实工作区可能只有 `683 × 364`（1366×768 @200%），被强行撑大后预设会算出越界坐标，再被各窗口钳制，表现为**挤压与重叠**。
+
+| 实际工作区 | 旧视口 | 新视口 |
+| --- | --- | --- |
+| 1920 × 1017 | 1920 × 1017 | 1920 × 1017 |
+| 960 × 540 | 960 × **560** | 960 × 540 |
+| 683 × 364 | **800 × 560** | 683 × 364 |
+
+同时修复「右侧停靠」预设在窄视口下把最左列算成**负 x** 的问题（实测 683×364 / 8 分区时最左 x = **−285**，面板被推出屏幕左缘），原生与前端两处同型实现均已加兜底。
+
+### 文字可读性
+
+- 文件名标签默认字号 **10 → 12 DIP**，可调范围 **[8, 14] → [8, 18]**；
+- **已保存的自定义字号原样保留**，只在缺失时使用新默认值；
+- 设置页新增「**清晰 / 标准 / 紧凑**」三档预设，一键套用到当前选中分类：
+
+| 预设 | 名称字号 | 图标尺寸 | 项目宽度 | 项目间距 |
+| --- | --- | --- | --- | --- |
+| 清晰 | 14 | 64 | 92 | 10 |
+| 标准 | 12 | 54 | 76 | 6 |
+| 紧凑 | 10 | 44 | 62 | 4 |
+
+### 窄标题条
+
+分区宽度 **< 200 DIP** 时，标题条只保留 标题 + 折叠 + 菜单按钮，搜索、尺寸、视图、图钉四个按钮收起（悬停也不再挤出），对应操作改从右键菜单进入。
+
+### 性能与内存
+
+- 后台图标解码增加**进行中任务去重**与 **4 路并发上限**，避免同一图标被反复排队解码；
+- 解码缓存逐出修正为真正降到 **24 MB 低水位**（此前只降到 32 MB 上限即停，与设计意图不符）。
+
 ---
 
 ## 效果预览
@@ -224,7 +299,7 @@ PivKeyUBox（中文名「片刻收纳」）把桌面文件收纳盒直接挂载�
 
 前往 [Releases 页面](https://github.com/PivKeyU/PivKeyUBox/releases) 下载最新版本：
 
-- `PivKeyUBox-Setup-v0.1.0.exe` —— 单文件向导式安装包，约 8 MB，**免 UAC**，安装到用户目录。
+- `PivKeyUBox-Setup-v0.1.1.exe` —— 单文件向导式安装包，约 8 MB，**免 UAC**，安装到用户目录。
 - `PivKeyUBox-win-x64.zip` —— 便携版压缩包，解压后直接运行 `PivKeyUBox.exe`。
 
 安装完成后程序常驻系统托盘，双击托盘图标打开设置，左键单击切换全部分区显示/隐藏。
@@ -457,6 +532,8 @@ Windows 11 默认已预装，Windows 10 (1809+) 多数通过 Edge 更新也已�
 - [x] 快速搜索窗与全局热键
 - [x] 多工作区预设（办公 / 游戏 / 开发 + 自定义快照）
 - [x] 收纳撤销/重做历史
+- [x] 界面缩放真正作用于收纳栏（80%–130%）与高清图标按像素档位生成
+- [x] 小工作区布局（移除虚构视口下限）与文件名标签可读性提升
 - [ ] 更细粒度的分类规则编辑器（正则匹配与规则导入导出）
 - [ ] 便签与收纳数据的一键云备份/恢复
 - [ ] 界面多语言（当前界面文案为简体中文）

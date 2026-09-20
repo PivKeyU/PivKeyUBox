@@ -235,7 +235,7 @@ export function SettingsModal({ preferences, itemLayouts, defaultItemLayout, ada
   };
 
   // 关于与在线更新状态
-  const [appVersion, setAppVersion] = useState('0.1.0');
+  const [appVersion, setAppVersion] = useState('0.1.1');
   const [repoUrl, setRepoUrl] = useState('PivKeyU/PivKeyUBox');
   const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
   const [updateResult, setUpdateResult] = useState<UpdateCheckResult | null>(null);

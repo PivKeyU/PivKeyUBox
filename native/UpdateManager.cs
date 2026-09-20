@@ -15,7 +15,7 @@ namespace PivkeyOrganizer
     /// </summary>
     public static class UpdateManager
     {
-        public static readonly string CurrentVersion = "0.1.0";
+        public static readonly string CurrentVersion = "0.1.1";
         public static readonly string DefaultRepo = "PivKeyU/PivKeyUBox";
 
         private static readonly object syncLock = new object();

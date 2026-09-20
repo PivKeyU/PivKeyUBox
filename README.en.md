@@ -5,7 +5,7 @@
   <p>
     <img src="https://img.shields.io/badge/Platform-Windows%2010%2F11-0078D4?logo=windows&logoColor=white" alt="Platform" />
     <a href="#license"><img src="https://img.shields.io/badge/License-MIT-3DA639?logo=opensourceinitiative&logoColor=white" alt="License: MIT" /></a>
-    <a href="https://github.com/PivKeyU/PivKeyUBox/releases"><img src="https://img.shields.io/badge/Release-v0.1.0-3478f6?logo=github&logoColor=white" alt="Release" /></a>
+    <a href="https://github.com/PivKeyU/PivKeyUBox/releases"><img src="https://img.shields.io/badge/Release-v0.1.1-3478f6?logo=github&logoColor=white" alt="Release" /></a>
     <img src="https://img.shields.io/badge/.NET%20Framework-4.7.2-512BD4?logo=dotnet&logoColor=white" alt=".NET Framework 4.7.2" />
     <img src="https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black" alt="React 19" />
     <img src="https://img.shields.io/badge/WebView2-Runtime-0078D4" alt="WebView2" />
@@ -142,6 +142,80 @@ With Capsule mode on, a collapsed Panel is no longer a thin bar but a **56×56 d
 | Click-through | `Ctrl + Alt + Q` toggles `WS_EX_TRANSPARENT` so clicks pass straight through to the desktop |
 | Organize history | Up to 30 batches of operations with undo and redo |
 
+
+---
+
+## Clarity and UI scaling
+
+> This section covers the `v0.1.1` clarity work. The authoritative reference for the conversion contract is [`design-system/pivkey-organizer/UI-SCALING.md`](design-system/pivkey-organizer/UI-SCALING.md) (Chinese).
+
+### UI scale (80% – 130%)
+
+The **UI scale** slider in Settings now genuinely affects the desktop Panels — Panel titles, file-name labels, title-bar height and Capsule size all change together.
+
+Previously the slider only scaled the Settings window: Panel payloads are built by the native `Manager.BuildPanels()`, which never set the `uiScale` field, so the consumer always received 0 and fell back to 100.
+
+The contract has two layers that **must not be mixed**:
+
+| Layer | Conversion | Note |
+| --- | --- | --- |
+| Logical sizes (WPF `Width` / `FontSize`, …) | `× uiScale` | WPF already converts DIP to physical pixels using the system DPI — **multiplying by DPI again double-scales** |
+| Bitmap pixel requests (icon decoding) | `× uiScale × dpiScale` | Only bitmaps need real physical pixel counts |
+
+Measured on 1920×1080 @150% DPI (collapsed title bars):
+
+| UI scale | Title-bar height | Capsule size |
+| --- | --- | --- |
+| 80% | 24 px | 45 px |
+| 100% | 30 px | 56 px |
+| 130% | 39 px | 73 px |
+
+### High-resolution icons generated per pixel tier
+
+Icons are no longer drawn on a fixed-size canvas. They are requested and decoded at **logical size × UI scale × system DPI, rounded up to a multiple of 16**, clamped to `[48, 256]`:
+
+```text
+ResolveIconPixelSize(54 DIP, 100%, 100% DPI) = 64 px
+ResolveIconPixelSize(54 DIP, 100%, 150% DPI) = 96 px
+ResolveIconPixelSize(54 DIP, 130%, 150% DPI) = 112 px
+```
+
+- The icon cache key includes the pixel tier, so moving across screens or changing the scale re-decodes at the new tier and retires the old one;
+- The on-disk icon cache carries a tier prefix so different tiers never overwrite each other;
+- At the `96 px` tier the drawing parameters are identical to the previous implementation — **no visual regression on upgrade**.
+
+### Small work areas
+
+The invented `800 × 560` viewport floor has been removed. At high scaling or on small screens the real work area can be as small as `683 × 364` (1366×768 @200%); padding it upwards made presets compute out-of-bounds coordinates that were then clamped per window, which showed up as **squeezed, overlapping Panels**.
+
+| Real work area | Old viewport | New viewport |
+| --- | --- | --- |
+| 1920 × 1017 | 1920 × 1017 | 1920 × 1017 |
+| 960 × 540 | 960 × **560** | 960 × 540 |
+| 683 × 364 | **800 × 560** | 683 × 364 |
+
+The right-dock preset could also compute a **negative x** for its leftmost column in narrow viewports (measured: leftmost x = **−285** at 683×364 with 8 Panels, pushing Panels off the left screen edge). Both the native and the front-end implementations now carry a guard.
+
+### Text readability
+
+- Default file-name label size **10 → 12 DIP**, adjustable range **[8, 14] → [8, 18]**;
+- **Saved custom sizes are preserved as-is**; the new default only applies when the value is missing;
+- Settings gained three presets — **Clear / Standard / Compact** — applied to the currently selected category:
+
+| Preset | Label size | Icon size | Item width | Item gap |
+| --- | --- | --- | --- | --- |
+| Clear | 14 | 64 | 92 | 10 |
+| Standard | 12 | 54 | 76 | 6 |
+| Compact | 10 | 44 | 62 | 4 |
+
+### Narrow title bar
+
+When a Panel is narrower than **200 DIP**, its title bar keeps only the title, the collapse button and the menu button. The search, size, view and pin buttons are put away (they no longer squeeze in on hover) and their actions move into the context menu.
+
+### Performance and memory
+
+- Background icon decoding now de-duplicates in-flight work and caps concurrency at **4**, so the same icon is never queued twice;
+- The decode-cache eviction was corrected to actually drop to the **24 MB low-water mark** (it previously stopped at the 32 MB ceiling, contradicting the design intent).
 ---
 
 ## Gallery
@@ -224,7 +298,7 @@ With Capsule mode on, a collapsed Panel is no longer a thin bar but a **56×56 d
 
 Grab the latest release from the [Releases page](https://github.com/PivKeyU/PivKeyUBox/releases):
 
-- `PivKeyUBox-Setup-v0.1.0.exe` — single-file wizard installer, about 8 MB, **no UAC**, installs into your user profile.
+- `PivKeyUBox-Setup-v0.1.1.exe` — single-file wizard installer, about 8 MB, **no UAC**, installs into your user profile.
 - `PivKeyUBox-win-x64.zip` — portable archive; unzip and run `PivKeyUBox.exe`.
 
 Once installed, the app lives in the system tray: double-click the tray icon to open Settings, single left-click toggles all Panels on and off.
@@ -457,6 +531,8 @@ The manifest declares `PerMonitorV2,PerMonitor`, and each window converts coordi
 - [x] Quick search window and global hotkeys
 - [x] Workspace presets (Office / Gaming / Development + custom snapshots)
 - [x] Organize undo/redo history
+- [x] UI scale actually affecting the Panels (80%–130%) with per-pixel-tier icon generation
+- [x] Small-work-area layout (invented viewport floor removed) and more readable file-name labels
 - [ ] Finer-grained rule editor (regex matching, rule import/export)
 - [ ] One-click backup/restore of Notes and organize data
 - [ ] UI localization (the interface is currently Simplified Chinese only)

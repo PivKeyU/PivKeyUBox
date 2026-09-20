@@ -20,8 +20,8 @@ using Forms = System.Windows.Forms;
 [assembly: AssemblyDescription("轻量 Windows 桌面文件整理工具")]
 [assembly: AssemblyProduct("片刻收纳")]
 [assembly: AssemblyCompany("Pivkey")]
-[assembly: AssemblyVersion("0.1.0.0")]
-[assembly: AssemblyFileVersion("0.1.0.0")]
+[assembly: AssemblyVersion("0.1.1.0")]
+[assembly: AssemblyFileVersion("0.1.1.0")]
 
 namespace PivkeyOrganizer
 {

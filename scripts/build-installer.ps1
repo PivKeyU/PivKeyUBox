@@ -28,7 +28,7 @@ Write-Host "找到 Inno Setup 编译器: $iscc" -ForegroundColor Green
 
 $pkgJson = Get-Content -Raw -Encoding UTF8 (Join-Path $root 'package.json') | ConvertFrom-Json
 $appVersion = $pkgJson.version
-if (-not $appVersion) { $appVersion = '0.1.0' }
+if (-not $appVersion) { $appVersion = '0.1.1' }
 
 Write-Host "==> 3. 正在生成 Inno Setup 安装包 (版本: v$appVersion)..." -ForegroundColor Cyan
 $issFile = Join-Path $root 'scripts\installer.iss'

@@ -456,7 +456,7 @@ export interface UpdateDownloadProgress {
 
 export async function getAppVersionInfo(): Promise<AppVersionInfo> {
   if (!isNativeRuntime()) {
-    return { version: '0.1.0 (Web预览)', defaultRepo: 'PivKeyU/PivKeyUBox' };
+    return { version: '0.1.1 (Web预览)', defaultRepo: 'PivKeyU/PivKeyUBox' };
   }
   return rpc<AppVersionInfo>('getAppVersion');
 }
@@ -466,7 +466,7 @@ export async function checkAppUpdate(repo?: string): Promise<UpdateCheckResult> 
     await new Promise((resolve) => setTimeout(resolve, 800));
     return {
       hasUpdate: true,
-      currentVersion: '0.1.0',
+      currentVersion: '0.1.1',
       latestVersion: '0.1.1',
       tagName: 'v0.1.1',
       releaseName: 'v0.1.1 体验优化版',

@@ -1,6 +1,6 @@
 ; 片刻收纳 (Pivkey Organizer) Inno Setup 6 打包脚本
 #ifndef MyAppVersion
-  #define MyAppVersion "0.1.0"
+  #define MyAppVersion "0.1.1"
 #endif
 
 #define MyAppName "PivKeyUBox"
