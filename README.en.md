@@ -552,14 +552,6 @@ Issues and pull requests are welcome.
 
 ---
 
-## Credits
-
-- **[Maple Mono NF CN](https://github.com/subframe7536/maple-font)** — the monospace font resources vendored in this repository (`src/assets/fonts/`). The native host's font resolver (`native/FontResources.cs`) prefers the packaged font files and falls back to system UI fonts when they are missing.
-- **[Phosphor Icons](https://phosphoricons.com/)** — the icon system shared by the native windows and the web UI (`@phosphor-icons/react` plus embedded SVG paths).
-- **Original hand-drawn characters** — the Panel icons, Note illustrations, and settings artwork are all original assets created for this project.
-
----
-
 ## License
 
 Released under the **MIT License**. See [`LICENSE`](LICENSE) for the full text.

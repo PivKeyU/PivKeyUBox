@@ -553,14 +553,6 @@ Windows 11 默认已预装，Windows 10 (1809+) 多数通过 Edge 更新也已�
 
 ---
 
-## 致谢
-
-- **[Maple Mono NF CN](https://github.com/subframe7536/maple-font)** —— 仓库内置该等宽字体资源（`src/assets/fonts/`），原生宿主的字体解析器（`native/FontResources.cs`）会优先查找随包字体文件，缺失时回退到系统 UI 字体。
-- **[Phosphor Icons](https://phosphoricons.com/)** —— 原生窗口与前端界面共用的图标体系（`@phosphor-icons/react` 与内嵌 SVG 路径）。
-- **原创手绘角色形象** —— 分区图标、便签图示与设置页中的角色插画均为本项目原创素材。
-
----
-
 ## 许可证
 
 本项目基于 **MIT License** 发布。完整条款见仓库根目录的 [`LICENSE`](LICENSE)。
